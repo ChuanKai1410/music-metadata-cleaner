@@ -78,3 +78,26 @@ class DryRunResult:
     proposed_path: Path | None
     warnings: tuple[str, ...] = ()
 
+
+@dataclass(frozen=True)
+class MusicBrainzIdentifiers:
+    """MusicBrainz identifiers linked to enriched canonical metadata."""
+
+    recording_id: str
+    artist_ids: tuple[str, ...] = ()
+    release_id: str | None = None
+    release_group_id: str | None = None
+
+
+@dataclass(frozen=True)
+class MusicBrainzMetadata:
+    """Canonical metadata retrieved from MusicBrainz for a recording."""
+
+    artist: str | None
+    title: str | None
+    album: str | None
+    release_date: str | None
+    track_number: str | None
+    duration: int | None
+    identifiers: MusicBrainzIdentifiers
+
