@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from music_metadata_cleaner.app.workflow_service import (
     ApplySettings,
+    ApplyResult,
     BatchProgress,
     CancellationToken,
     MusicCleanerWorkflowService,
@@ -79,6 +80,7 @@ class MainWindow(QMainWindow):
         self.processing_thread: QThread | None = None
         self.processing_worker: ProcessingWorker | None = None
         self.cancellation_token: CancellationToken | None = None
+        self.applied_high_confidence_paths: set[Path] = set()
 
         self.setWindowTitle("Music Metadata Cleaner")
         self.resize(1180, 760)
@@ -217,14 +219,17 @@ class MainWindow(QMainWindow):
         self.preview_button = QPushButton("Preview Changes")
         self.apply_selected_button = QPushButton("Apply Selected")
         self.apply_high_confidence_button = QPushButton("Apply All High Confidence")
+        self.remove_high_confidence_button = QPushButton("Remove All High Confidence")
         self.history_button = QPushButton("View History")
         self.undo_button = QPushButton("Undo Last Batch")
         self.cancel_button = QPushButton("Cancel Processing")
+        self.remove_high_confidence_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
         for button in (
             self.preview_button,
             self.apply_selected_button,
             self.apply_high_confidence_button,
+            self.remove_high_confidence_button,
             self.history_button,
             self.undo_button,
             self.cancel_button,
@@ -243,6 +248,7 @@ class MainWindow(QMainWindow):
         self.preview_button.clicked.connect(self.preview_changes)
         self.apply_selected_button.clicked.connect(self.apply_selected)
         self.apply_high_confidence_button.clicked.connect(self.apply_all_high_confidence)
+        self.remove_high_confidence_button.clicked.connect(self.remove_applied_high_confidence)
         self.history_button.clicked.connect(self.view_history)
         self.undo_button.clicked.connect(self.undo_last_batch)
         self.cancel_button.clicked.connect(self.cancel_processing)
@@ -265,6 +271,7 @@ class MainWindow(QMainWindow):
         existing = {track.path.resolve() for track in self.tracks}
         self.tracks.extend(track for track in discovered if track.path.resolve() not in existing)
         self._log(f"Added {len(discovered)} MP3 file(s).")
+        self._clear_applied_high_confidence_paths()
         self._refresh_table()
 
     @Slot()
@@ -272,11 +279,13 @@ class MainWindow(QMainWindow):
         rows = sorted(self._selected_rows(), reverse=True)
         for row in rows:
             self.tracks.pop(row)
+        self._sync_applied_high_confidence_paths()
         self._refresh_table()
 
     @Slot()
     def clear_files(self) -> None:
         self.tracks.clear()
+        self._clear_applied_high_confidence_paths()
         self._refresh_table()
         self._refresh_detail_panel()
 
@@ -327,6 +336,7 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _handle_processing_finished(self, tracks: list[WorkflowTrack]) -> None:
         self.tracks = tracks
+        self._clear_applied_high_confidence_paths()
         self.cancel_button.setEnabled(False)
         self.preview_button.setEnabled(True)
         self.scan_button.setEnabled(True)
@@ -356,9 +366,27 @@ class MainWindow(QMainWindow):
         if not tracks:
             self._show_info("No high-confidence ready tracks are available.")
             return
-        self._apply_tracks(tracks)
+        results = self._apply_tracks(tracks)
+        successful_paths = {result.path.resolve() for result in results if result.success}
+        self.applied_high_confidence_paths = successful_paths
+        self.remove_high_confidence_button.setEnabled(bool(successful_paths))
 
-    def _apply_tracks(self, tracks: list[WorkflowTrack]) -> None:
+    @Slot()
+    def remove_applied_high_confidence(self) -> None:
+        if not self.applied_high_confidence_paths:
+            return
+
+        before_count = len(self.tracks)
+        self.tracks = [
+            track for track in self.tracks if track.path.resolve() not in self.applied_high_confidence_paths
+        ]
+        removed_count = before_count - len(self.tracks)
+        self._clear_applied_high_confidence_paths()
+        self._refresh_table()
+        self._refresh_detail_panel()
+        self._log(f"Removed {removed_count} applied high-confidence row(s) from the list.")
+
+    def _apply_tracks(self, tracks: list[WorkflowTrack]) -> list[ApplyResult]:
         reply = QMessageBox.question(
             self,
             "Apply Changes",
@@ -366,7 +394,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
-            return
+            return []
 
         results = self.workflow_service.apply_tracks(tracks, self._apply_settings())
         success_count = sum(1 for result in results if result.success)
@@ -375,6 +403,7 @@ class MainWindow(QMainWindow):
         for result in results:
             if not result.success:
                 self._log(f"{result.path.name}: {result.message}")
+        return results
 
     def _apply_settings(self) -> ApplySettings:
         return ApplySettings(
@@ -503,6 +532,15 @@ class MainWindow(QMainWindow):
 
     def _show_info(self, message: str) -> None:
         QMessageBox.information(self, "Music Metadata Cleaner", message)
+
+    def _clear_applied_high_confidence_paths(self) -> None:
+        self.applied_high_confidence_paths.clear()
+        self.remove_high_confidence_button.setEnabled(False)
+
+    def _sync_applied_high_confidence_paths(self) -> None:
+        current_paths = {track.path.resolve() for track in self.tracks}
+        self.applied_high_confidence_paths.intersection_update(current_paths)
+        self.remove_high_confidence_button.setEnabled(bool(self.applied_high_confidence_paths))
 
     def closeEvent(self, event) -> None:
         self.cancel_processing()
