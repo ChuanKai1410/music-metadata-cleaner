@@ -1,0 +1,2 @@
+"""Music Metadata Cleaner package."""
+

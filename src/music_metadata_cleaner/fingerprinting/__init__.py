@@ -1,0 +1,2 @@
+"""Audio fingerprinting adapters."""
+

@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Music Metadata Cleaner local state
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.lrc.tmp
+
+# Local media fixtures and scratch libraries
+media/
+sample_music/
+*.mp3
+*.flac
+*.wav
+*.m4a
+
+# Application logs and reports
+logs/
+reports/
+
+# Local secrets and API keys
+*.key
+secrets.toml
