@@ -31,6 +31,7 @@ def create_default_workflow_service() -> MusicCleanerWorkflowService:
     config = _load_or_create_config()
     user_agent = os.environ.get("MUSIC_METADATA_CLEANER_USER_AGENT", config.user_agent or DEFAULT_USER_AGENT)
     acoustid_api_key = os.environ.get("ACOUSTID_API_KEY", config.acoustid_api_key)
+    fpcalc_path = os.environ.get("FPCALC_PATH", config.fpcalc_path)
     logger = configure_logging(config.log_path)
     connection = connect_database(config.database_path)
     initialize_schema(connection)
@@ -39,7 +40,7 @@ def create_default_workflow_service() -> MusicCleanerWorkflowService:
     identifier = None
     if acoustid_api_key:
         identifier = AudioIdentificationService(
-            FpcalcFingerprinter(),
+            FpcalcFingerprinter(executable=fpcalc_path),
             AcoustIDClient(acoustid_api_key, request_cache=request_cache),
         )
 
