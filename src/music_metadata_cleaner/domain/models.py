@@ -30,6 +30,46 @@ class Lyrics:
 
 
 @dataclass(frozen=True)
+class LyricsLookup:
+    """Confirmed song identity used to retrieve lyrics."""
+
+    artist: str
+    title: str
+    album: str | None = None
+    duration: int | None = None
+
+
+@dataclass(frozen=True)
+class LyricsResult:
+    """Lyrics result marked by origin and review status."""
+
+    source: str
+    plain_lyrics: str | None = None
+    synced_lyrics: str | None = None
+    lrclib_id: int | None = None
+    artist: str | None = None
+    title: str | None = None
+    album: str | None = None
+    duration: int | None = None
+    instrumental: bool = False
+    confidence: float = 0.0
+    requires_review: bool = False
+    review_reasons: tuple[str, ...] = ()
+
+    @property
+    def has_plain_lyrics(self) -> bool:
+        return bool(self.plain_lyrics and self.plain_lyrics.strip())
+
+    @property
+    def has_synced_lyrics(self) -> bool:
+        return bool(self.synced_lyrics and self.synced_lyrics.strip())
+
+    @property
+    def can_export_lrc(self) -> bool:
+        return self.has_synced_lyrics
+
+
+@dataclass(frozen=True)
 class TrackMetadata:
     """User-visible MP3 metadata fields supported by the local adapter."""
 
@@ -77,6 +117,26 @@ class DryRunResult:
     proposed_filename: str | None
     proposed_path: Path | None
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AudioFingerprint:
+    """Chromaprint fingerprint data for an audio file."""
+
+    duration: int
+    fingerprint: str
+
+
+@dataclass(frozen=True)
+class CandidateRecording:
+    """Normalized recording candidate returned by audio identification."""
+
+    recording_id: str
+    artist: str | None
+    title: str | None
+    duration: int | None
+    acoustid_score: float
+    musicbrainz_recording_id: str | None = None
 
 
 @dataclass(frozen=True)
