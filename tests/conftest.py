@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import sys
 import uuid
+import os
 from pathlib import Path
 
 import pytest
 
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
