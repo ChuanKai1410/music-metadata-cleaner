@@ -78,3 +78,22 @@ class DryRunResult:
     proposed_path: Path | None
     warnings: tuple[str, ...] = ()
 
+
+@dataclass(frozen=True)
+class AudioFingerprint:
+    """Chromaprint fingerprint data for an audio file."""
+
+    duration: int
+    fingerprint: str
+
+
+@dataclass(frozen=True)
+class CandidateRecording:
+    """Normalized recording candidate returned by audio identification."""
+
+    recording_id: str
+    artist: str | None
+    title: str | None
+    duration: int | None
+    acoustid_score: float
+    musicbrainz_recording_id: str | None = None
