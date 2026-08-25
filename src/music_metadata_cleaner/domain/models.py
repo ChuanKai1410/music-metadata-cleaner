@@ -161,3 +161,19 @@ class MusicBrainzMetadata:
     duration: int | None
     identifiers: MusicBrainzIdentifiers
 
+
+@dataclass(frozen=True)
+class ProposedTrackChanges:
+    """Preview-ready metadata and file changes for a track."""
+
+    artist: str | None = None
+    title: str | None = None
+    album: str | None = None
+    release_date: str | None = None
+    track_number: str | None = None
+    duration: int | None = None
+    filename: str | None = None
+    lyrics: LyricsResult | None = None
+    cover_source: str | None = None
+    musicbrainz_recording_id: str | None = None
+
