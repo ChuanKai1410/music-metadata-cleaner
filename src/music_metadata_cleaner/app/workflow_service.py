@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import logging
 from pathlib import Path
 from typing import Callable, Protocol
 
 from music_metadata_cleaner.app.lyrics_service import build_lrc_export_filename
+from music_metadata_cleaner.db.history import HistoryRepository, OperationRecord
 from music_metadata_cleaner.domain.models import (
     CandidateRecording,
     Lyrics,
@@ -17,9 +19,11 @@ from music_metadata_cleaner.domain.models import (
     ProposedTrackChanges,
     TrackMetadata,
 )
+from music_metadata_cleaner.files.backup import create_backup, restore_backup
 from music_metadata_cleaner.files.safe_paths import generate_mp3_filename
 from music_metadata_cleaner.files.scanner import discover_mp3_files
 from music_metadata_cleaner.id3.reader import read_id3_metadata
+from music_metadata_cleaner.id3.snapshot import restore_id3_metadata
 from music_metadata_cleaner.id3.writer import write_id3_metadata
 
 
@@ -48,6 +52,7 @@ class ApplySettings:
     add_lyrics: bool = True
     export_lrc: bool = False
     rename_file: bool = False
+    enable_backup: bool = True
 
 
 @dataclass(frozen=True)
@@ -99,18 +104,27 @@ class MusicCleanerWorkflowService:
         lyrics_service: LyricsLookupService | None = None,
         metadata_reader: Callable[[str | Path], TrackMetadata] = read_id3_metadata,
         metadata_writer: Callable[[str | Path, MetadataUpdate], None] | None = None,
+        metadata_restorer: Callable[[str | Path, TrackMetadata], None] = restore_id3_metadata,
+        history_repository: HistoryRepository | None = None,
+        backup_folder: str | Path | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.identifier = identifier
         self.metadata_service = metadata_service
         self.lyrics_service = lyrics_service
         self.metadata_reader = metadata_reader
         self.metadata_writer = metadata_writer or self._write_metadata
+        self.metadata_restorer = metadata_restorer
+        self.history_repository = history_repository
+        self.backup_folder = Path(backup_folder) if backup_folder is not None else None
+        self.logger = logger or logging.getLogger("music_metadata_cleaner")
 
     def discover(self, paths: list[str | Path]) -> list[WorkflowTrack]:
         tracks: list[WorkflowTrack] = []
         seen: set[Path] = set()
 
         for path in paths:
+            self.logger.info("Scanning path: %s", path)
             for mp3_path in discover_mp3_files(path):
                 resolved = mp3_path.resolve()
                 if resolved in seen:
@@ -120,6 +134,7 @@ class MusicCleanerWorkflowService:
                     metadata = self.metadata_reader(mp3_path)
                     tracks.append(WorkflowTrack(path=mp3_path, current_metadata=metadata))
                 except Exception:
+                    self.logger.exception("Failed to read MP3 metadata: %s", mp3_path)
                     tracks.append(
                         WorkflowTrack(
                             path=mp3_path,
@@ -161,6 +176,7 @@ class MusicCleanerWorkflowService:
         try:
             candidate = self._best_candidate(track)
             if candidate is None:
+                self.logger.info("No metadata candidate found: %s", track.path)
                 return self._fallback_from_current_tags(track, "No metadata found")
 
             metadata = self._metadata_for_candidate(candidate)
@@ -181,6 +197,7 @@ class MusicCleanerWorkflowService:
                 error_message=None,
             )
         except Exception as exc:
+            self.logger.exception("Processing failed for %s", track.path)
             return replace(
                 track,
                 metadata_status="Failed",
@@ -190,6 +207,10 @@ class MusicCleanerWorkflowService:
 
     def apply_tracks(self, tracks: list[WorkflowTrack], settings: ApplySettings) -> list[ApplyResult]:
         results: list[ApplyResult] = []
+        if self.history_repository is None:
+            return [ApplyResult(track.path, False, "History database is required before modifying files.") for track in tracks]
+
+        batch_id = self.history_repository.begin_batch()
         for track in tracks:
             if track.proposed is None:
                 results.append(ApplyResult(track.path, False, "No previewed changes are available."))
@@ -199,12 +220,49 @@ class MusicCleanerWorkflowService:
                 continue
 
             try:
-                self._apply_track(track, settings)
+                operation_id = self._create_history_record(batch_id, track, settings)
+                self._apply_track(track, settings, operation_id)
             except Exception as exc:
+                self.logger.exception("Apply failed for %s", track.path)
                 results.append(ApplyResult(track.path, False, self._friendly_error(exc)))
             else:
                 results.append(ApplyResult(track.path, True, "Applied selected changes."))
 
+        self.history_repository.mark_batch(batch_id, "applied" if all(result.success for result in results) else "partial")
+        return results
+
+    def list_operations(self, limit: int = 100) -> list[OperationRecord]:
+        if self.history_repository is None:
+            return []
+        return self.history_repository.list_operations(limit)
+
+    def undo_last_batch(self) -> list[ApplyResult]:
+        if self.history_repository is None:
+            return []
+        batch_id = self.history_repository.latest_applied_batch_id()
+        if batch_id is None:
+            return []
+
+        results: list[ApplyResult] = []
+        for operation in self.history_repository.operations_for_batch(batch_id):
+            current_path = operation.file_path.with_name(operation.new_filename) if operation.new_filename else operation.file_path
+            try:
+                if not current_path.exists():
+                    raise FileNotFoundError("The modified file could not be found for undo.")
+                self.metadata_restorer(current_path, operation.original_metadata)
+                original_path = operation.file_path.with_name(operation.original_filename)
+                if current_path.resolve() != original_path.resolve():
+                    if original_path.exists():
+                        raise FileExistsError("The original filename already exists; undo stopped.")
+                    current_path.rename(original_path)
+                self.history_repository.mark_operation(operation.operation_id, "undone")
+                results.append(ApplyResult(original_path, True, "Undo restored original metadata and filename."))
+                self.logger.info("Undo restored %s", original_path)
+            except Exception as exc:
+                self.history_repository.mark_operation(operation.operation_id, "undo_failed", self._friendly_error(exc))
+                results.append(ApplyResult(current_path, False, self._friendly_error(exc)))
+                self.logger.exception("Undo failed for %s", current_path)
+        self.history_repository.mark_batch(batch_id, "undone" if all(result.success for result in results) else "undo_partial")
         return results
 
     def _best_candidate(self, track: WorkflowTrack) -> CandidateRecording | None:
@@ -291,40 +349,84 @@ class MusicCleanerWorkflowService:
             requires_review=True,
         )
 
-    def _apply_track(self, track: WorkflowTrack, settings: ApplySettings) -> None:
+    def _create_history_record(self, batch_id: str, track: WorkflowTrack, settings: ApplySettings) -> str:
+        new_metadata = self._metadata_update(track, settings)
+        new_filename = track.proposed.filename if settings.rename_file and track.proposed is not None else None
+        return self.history_repository.create_operation(
+            batch_id=batch_id,
+            file_path=track.path,
+            original_metadata=track.current_metadata,
+            new_metadata=new_metadata,
+            new_filename=new_filename,
+        )
+
+    def _apply_track(self, track: WorkflowTrack, settings: ApplySettings, operation_id: str) -> None:
         proposed = track.proposed
         if proposed is None:
             return
 
-        if settings.update_id3_metadata:
-            self.metadata_writer(
-                track.path,
-                MetadataUpdate(
-                    title=proposed.title if settings.update_title else None,
-                    artist=proposed.artist if settings.update_artist else None,
-                    album=proposed.album if settings.update_album else None,
-                    release_date=proposed.release_date,
-                    track_number=proposed.track_number,
-                    lyrics=(
-                        Lyrics(text=proposed.lyrics.plain_lyrics)
-                        if settings.add_lyrics and proposed.lyrics is not None and proposed.lyrics.source == "online"
-                        else None
-                    ),
-                ),
-            )
+        backup_path: Path | None = None
+        current_path = track.path
+        lrc_path: Path | None = None
+        try:
+            if settings.enable_backup:
+                backup_path = create_backup(track.path, backup_folder=self.backup_folder)
+                self.logger.info("Created backup %s", backup_path)
 
-        if settings.export_lrc and proposed.lyrics is not None and proposed.lyrics.has_synced_lyrics:
-            lrc_path = track.path.with_name(build_lrc_export_filename(proposed.artist or "Unknown", proposed.title or "Unknown"))
-            if lrc_path.exists():
-                raise FileExistsError("The .lrc export file already exists.")
-            lrc_path.write_text(proposed.lyrics.synced_lyrics or "", encoding="utf-8")
+            if settings.update_id3_metadata:
+                self.metadata_writer(track.path, self._metadata_update(track, settings))
+                self.logger.info("Updated ID3 metadata for %s", track.path)
 
-        if settings.rename_file and proposed.filename:
-            target = track.path.with_name(proposed.filename)
-            if target.exists() and target.resolve() != track.path.resolve():
-                raise FileExistsError("The target filename already exists.")
-            if target.resolve() != track.path.resolve():
-                track.path.rename(target)
+            if settings.export_lrc and proposed.lyrics is not None and proposed.lyrics.has_synced_lyrics:
+                lrc_path = track.path.with_name(
+                    build_lrc_export_filename(proposed.artist or "Unknown", proposed.title or "Unknown")
+                )
+                if lrc_path.exists():
+                    raise FileExistsError("The .lrc export file already exists.")
+                lrc_path.write_text(proposed.lyrics.synced_lyrics or "", encoding="utf-8")
+                self.logger.info("Exported LRC file %s", lrc_path)
+
+            if settings.rename_file and proposed.filename:
+                target = track.path.with_name(proposed.filename)
+                if target.parent.resolve() != track.path.parent.resolve():
+                    raise ValueError("Target rename path must stay in the original folder.")
+                if target.exists() and target.resolve() != track.path.resolve():
+                    raise FileExistsError("The target filename already exists.")
+                if target.resolve() != track.path.resolve():
+                    track.path.rename(target)
+                    current_path = target
+                    self.logger.info("Renamed %s to %s", track.path, target)
+
+            self.history_repository.mark_operation(operation_id, "applied")
+        except Exception as exc:
+            self.history_repository.mark_operation(operation_id, "failed", self._friendly_error(exc))
+            if backup_path is not None and backup_path.exists():
+                restore_backup(backup_path, current_path)
+            else:
+                self.metadata_restorer(current_path, track.current_metadata)
+            if current_path.resolve() != track.path.resolve() and not track.path.exists():
+                current_path.rename(track.path)
+            if lrc_path is not None and lrc_path.exists():
+                lrc_path.unlink()
+            raise
+
+    def _metadata_update(self, track: WorkflowTrack, settings: ApplySettings) -> MetadataUpdate:
+        proposed = track.proposed
+        if proposed is None:
+            return MetadataUpdate()
+
+        return MetadataUpdate(
+            title=proposed.title if settings.update_title else None,
+            artist=proposed.artist if settings.update_artist else None,
+            album=proposed.album if settings.update_album else None,
+            release_date=proposed.release_date,
+            track_number=proposed.track_number,
+            lyrics=(
+                Lyrics(text=proposed.lyrics.plain_lyrics)
+                if settings.add_lyrics and proposed.lyrics is not None and proposed.lyrics.source == "online"
+                else None
+            ),
+        )
 
     def _confidence_from_candidate(self, candidate: CandidateRecording, lyrics: LyricsResult | None) -> int:
         confidence = round(candidate.acoustid_score * 100)

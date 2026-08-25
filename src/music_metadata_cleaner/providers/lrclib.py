@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Callable
+from typing import Callable, Protocol
 
 import httpx
 
@@ -19,6 +19,14 @@ from music_metadata_cleaner.providers.errors import (
 DEFAULT_USER_AGENT = "MusicMetadataCleaner/0.1 (https://example.com/music-metadata-cleaner)"
 
 
+class RequestCacheProtocol(Protocol):
+    def get(self, provider: str, cache_key: str) -> dict[str, object] | None:
+        """Return cached provider payload."""
+
+    def set(self, provider: str, cache_key: str, payload: dict[str, object]) -> None:
+        """Store provider payload."""
+
+
 class LRCLIBClient:
     """Retrieve plain and synchronized lyrics from LRCLIB."""
 
@@ -32,6 +40,7 @@ class LRCLIBClient:
         min_request_interval_seconds: float = 0.25,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        request_cache: RequestCacheProtocol | None = None,
     ) -> None:
         if not user_agent.strip():
             raise ValueError("LRCLIB requires a meaningful User-Agent header.")
@@ -43,6 +52,7 @@ class LRCLIBClient:
         self.min_request_interval_seconds = min_request_interval_seconds
         self.monotonic = monotonic
         self.sleep = sleep
+        self.request_cache = request_cache
         self._cache: dict[tuple[str, str, str | None, int | None], LyricsResult | None] = {}
         self._last_request_at: float | None = None
 
@@ -51,7 +61,12 @@ class LRCLIBClient:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        payload = self._get_lyrics_payload(lookup)
+        request_cache_key = ":".join(str(part) for part in cache_key)
+        payload = self.request_cache.get("lrclib", request_cache_key) if self.request_cache is not None else None
+        if payload is None:
+            payload = self._get_lyrics_payload(lookup)
+            if payload is not None and self.request_cache is not None:
+                self.request_cache.set("lrclib", request_cache_key, payload)
         if payload is None:
             self._cache[cache_key] = None
             return None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Protocol
 
 import httpx
 
@@ -21,6 +21,14 @@ DEFAULT_USER_AGENT = "MusicMetadataCleaner/0.1 (https://example.com/music-metada
 RECORDING_INCLUDES = "artist-credits+releases+release-groups+media"
 
 
+class RequestCacheProtocol(Protocol):
+    def get(self, provider: str, cache_key: str) -> dict[str, object] | None:
+        """Return cached provider payload."""
+
+    def set(self, provider: str, cache_key: str, payload: dict[str, object]) -> None:
+        """Store provider payload."""
+
+
 class MusicBrainzClient:
     """Retrieve canonical recording metadata from MusicBrainz."""
 
@@ -34,6 +42,7 @@ class MusicBrainzClient:
         min_request_interval_seconds: float = 1.0,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        request_cache: RequestCacheProtocol | None = None,
     ) -> None:
         if not user_agent.strip():
             raise ValueError("MusicBrainz requires a meaningful User-Agent header.")
@@ -45,6 +54,7 @@ class MusicBrainzClient:
         self.min_request_interval_seconds = min_request_interval_seconds
         self.monotonic = monotonic
         self.sleep = sleep
+        self.request_cache = request_cache
         self._cache: dict[str, MusicBrainzMetadata] = {}
         self._last_request_at: float | None = None
 
@@ -57,7 +67,12 @@ class MusicBrainzClient:
         if cached is not None:
             return cached
 
-        payload = self._get_recording(recording_id)
+        request_cache_key = f"recording:{recording_id}:{RECORDING_INCLUDES}"
+        payload = self.request_cache.get("musicbrainz", request_cache_key) if self.request_cache is not None else None
+        if payload is None:
+            payload = self._get_recording(recording_id)
+            if self.request_cache is not None:
+                self.request_cache.set("musicbrainz", request_cache_key, payload)
         metadata = normalize_recording_metadata(payload)
         self._cache[recording_id] = metadata
         return metadata
