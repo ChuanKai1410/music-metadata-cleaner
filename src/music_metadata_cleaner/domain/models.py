@@ -80,20 +80,24 @@ class DryRunResult:
 
 
 @dataclass(frozen=True)
-class AudioFingerprint:
-    """Chromaprint fingerprint data for an audio file."""
+class MusicBrainzIdentifiers:
+    """MusicBrainz identifiers linked to enriched canonical metadata."""
 
-    duration: int
-    fingerprint: str
+    recording_id: str
+    artist_ids: tuple[str, ...] = ()
+    release_id: str | None = None
+    release_group_id: str | None = None
 
 
 @dataclass(frozen=True)
-class CandidateRecording:
-    """Normalized recording candidate returned by audio identification."""
+class MusicBrainzMetadata:
+    """Canonical metadata retrieved from MusicBrainz for a recording."""
 
-    recording_id: str
     artist: str | None
     title: str | None
+    album: str | None
+    release_date: str | None
+    track_number: str | None
     duration: int | None
-    acoustid_score: float
-    musicbrainz_recording_id: str | None = None
+    identifiers: MusicBrainzIdentifiers
+
