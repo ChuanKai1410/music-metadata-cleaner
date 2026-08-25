@@ -32,14 +32,40 @@ It scans local MP3 files, reads existing ID3 tags, fingerprints audio with Chrom
 
 ## Installation
 
+Recommended on this machine:
+
+```powershell
+cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
+& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m pip install -r requirements.txt
+```
+
+Generic install command, if your correct environment is already active:
+
 ```powershell
 cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
 python -m pip install -r requirements.txt
 ```
 
-Install Chromaprint separately and make `fpcalc.exe` available on `PATH`.
+Install Chromaprint separately and either make `fpcalc.exe` available on `PATH`, or set `FPCALC_PATH` in `.env`.
 
 ## API Configuration
+
+Copy `.env.example` to `.env`, then fill in your values:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Minimum useful settings:
+
+```text
+ACOUSTID_API_KEY=your-acoustid-api-key
+MUSIC_METADATA_CLEANER_USER_AGENT=MusicMetadataCleaner/0.1 (your-email@example.com)
+FPCALC_PATH=C:\Tools\chromaprint\fpcalc.exe
+```
+
+You can also set values in the current PowerShell session:
 
 ```powershell
 $env:ACOUSTID_API_KEY="your-acoustid-api-key"
@@ -54,12 +80,45 @@ config/preferences.json
 
 ## Run From Source
 
+Recommended on this machine, even if `conda activate` is not working:
+
+```powershell
+cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
+$env:PYTHONPATH="$PWD\src"
+& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m music_metadata_cleaner
+```
+
+If your `music-cleaner` environment is already active:
+
 ```powershell
 $env:PYTHONPATH="$PWD\src"
 python -m music_metadata_cleaner
 ```
 
+The module name uses underscores only: `music_metadata_cleaner`.
+
+If PowerShell cannot activate the conda environment, repair conda once with:
+
+```powershell
+& "C:\Users\SCSM11\anaconda3\Scripts\conda.exe" init powershell
+```
+
+Then close PowerShell completely, open it again, and run:
+
+```powershell
+conda activate music-cleaner
+```
+
 ## Tests
+
+Recommended on this machine:
+
+```powershell
+$env:PYTHONPATH="$PWD\src"
+& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m pytest
+```
+
+If your correct environment is already active:
 
 ```powershell
 python -m pytest
@@ -88,4 +147,3 @@ See [docs/BUILD.md](docs/BUILD.md) for release notes and checklist.
 - [MusicBrainz Release Selection](docs/MUSICBRAINZ_RELEASE_SELECTION.md)
 - [User Guide](docs/USER_GUIDE.md)
 - [Build Instructions](docs/BUILD.md)
-

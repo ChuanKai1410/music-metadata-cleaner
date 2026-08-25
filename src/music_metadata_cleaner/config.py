@@ -19,6 +19,7 @@ class AppConfig:
     backup_folder_name: str = "MusicCleaner_Backup"
     database_path: str = "music_metadata_cleaner.sqlite3"
     log_path: str = "logs/application.log"
+    fpcalc_path: str = "fpcalc"
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -34,4 +35,3 @@ def save_config(path: str | Path, config: AppConfig) -> None:
     config_path = Path(path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(asdict(config), indent=2, ensure_ascii=False), encoding="utf-8")
-

@@ -10,7 +10,26 @@ Current write support is MP3 ID3 metadata. Other audio formats are ignored.
 
 ## Configure APIs
 
-Set environment variables before launching:
+The easiest setup is to use the project `.env` file.
+
+From the project folder:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Fill in at least:
+
+```text
+ACOUSTID_API_KEY=your-acoustid-api-key
+MUSIC_METADATA_CLEANER_USER_AGENT=MusicMetadataCleaner/0.1 (your-email@example.com)
+FPCALC_PATH=C:\Tools\chromaprint\fpcalc.exe
+```
+
+`MUSIC_METADATA_CLEANER_USER_AGENT` should include a contact email because MusicBrainz asks applications to identify themselves. It can be your Gmail account or another email address you are comfortable using for technical contact.
+
+You can also set environment variables manually before launching:
 
 ```powershell
 $env:ACOUSTID_API_KEY="your-acoustid-api-key"
@@ -24,6 +43,43 @@ config/preferences.json
 ```
 
 Supported preferences include API key, default music folder, filename format, artist language preference, auto-apply confidence threshold, backup setting, database path, and log path.
+
+## Start The Application
+
+Recommended command on this machine:
+
+```powershell
+cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
+$env:PYTHONPATH="$PWD\src"
+& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m music_metadata_cleaner
+```
+
+This works even when PowerShell still shows `(base)` or `conda activate music-cleaner` is broken, because it directly uses the Python installed inside the `music-cleaner` environment.
+
+If conda activation works, you can use:
+
+```powershell
+cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
+conda activate music-cleaner
+$env:PYTHONPATH="$PWD\src"
+python -m music_metadata_cleaner
+```
+
+The correct module name is:
+
+```text
+music_metadata_cleaner
+```
+
+Do not type backslashes in the module name.
+
+To repair conda activation in PowerShell:
+
+```powershell
+& "C:\Users\SCSM11\anaconda3\Scripts\conda.exe" init powershell
+```
+
+After that, close all PowerShell windows and open a new one.
 
 ## Basic Workflow
 
@@ -76,3 +132,18 @@ logs/application.log
 
 Some Anaconda environments can have Qt DLL conflicts. Try a clean virtual environment with dependencies installed from `requirements.txt`.
 
+If the base Anaconda Python shows a Qt DLL error, run the app with the direct environment Python instead:
+
+```powershell
+$env:PYTHONPATH="$PWD\src"
+& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m music_metadata_cleaner
+```
+
+If the command exits but no window appears, check that Qt is not running in offscreen mode:
+
+```powershell
+echo $env:QT_QPA_PLATFORM
+Remove-Item Env:QT_QPA_PLATFORM
+```
+
+Then start the app again.
