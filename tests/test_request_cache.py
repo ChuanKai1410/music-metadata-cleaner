@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import httpx
+import threading
 
 from music_metadata_cleaner.db.connection import connect_database
 from music_metadata_cleaner.db.request_cache import RequestCache
@@ -19,6 +20,23 @@ def test_request_cache_round_trip(tmp_path):
     cache.set("provider", "key", {"value": "cached"})
 
     assert cache.get("provider", "key") == {"value": "cached"}
+
+
+def test_request_cache_can_be_read_from_worker_thread(tmp_path):
+    connection = connect_database(tmp_path / "cache.sqlite3")
+    initialize_schema(connection)
+    cache = RequestCache(connection)
+    cache.set("provider", "key", {"value": "cached"})
+    result = []
+
+    def worker():
+        result.append(cache.get("provider", "key"))
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join()
+
+    assert result == [{"value": "cached"}]
 
 
 def test_acoustid_uses_sqlite_request_cache(tmp_path):

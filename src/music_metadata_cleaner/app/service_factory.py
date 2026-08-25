@@ -14,6 +14,7 @@ from music_metadata_cleaner.db.connection import connect_database
 from music_metadata_cleaner.db.history import HistoryRepository
 from music_metadata_cleaner.db.request_cache import RequestCache
 from music_metadata_cleaner.db.schema import initialize_schema
+from music_metadata_cleaner.env_loader import load_dotenv
 from music_metadata_cleaner.fingerprinting.fpcalc import FpcalcFingerprinter
 from music_metadata_cleaner.logging_config import configure_logging
 from music_metadata_cleaner.providers.acoustid import AcoustIDClient
@@ -28,6 +29,7 @@ CONFIG_PATH = Path("config/preferences.json")
 def create_default_workflow_service() -> MusicCleanerWorkflowService:
     """Create a workflow service from optional environment configuration."""
 
+    load_dotenv()
     config = _load_or_create_config()
     user_agent = os.environ.get("MUSIC_METADATA_CLEANER_USER_AGENT", config.user_agent or DEFAULT_USER_AGENT)
     acoustid_api_key = os.environ.get("ACOUSTID_API_KEY", config.acoustid_api_key)
