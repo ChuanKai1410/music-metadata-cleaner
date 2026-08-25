@@ -3,6 +3,9 @@ from __future__ import annotations
 from mutagen.id3 import ID3, TIT2, TPE1
 
 from music_metadata_cleaner.app.workflow_service import ApplySettings, MusicCleanerWorkflowService, WorkflowTrack
+from music_metadata_cleaner.db.connection import connect_database
+from music_metadata_cleaner.db.history import HistoryRepository
+from music_metadata_cleaner.db.schema import initialize_schema
 from music_metadata_cleaner.domain.models import (
     CandidateRecording,
     LyricsResult,
@@ -79,10 +82,14 @@ def test_workflow_processes_tracks_with_mocked_services(tmp_path):
 def test_workflow_apply_uses_writer_and_does_not_require_ui(tmp_path):
     writes = []
     track = _track(tmp_path / "song.mp3")
+    connection = connect_database(tmp_path / "history.sqlite3")
+    initialize_schema(connection)
 
     service = MusicCleanerWorkflowService(
         metadata_reader=lambda path: TrackMetadata(),
         metadata_writer=lambda path, update: writes.append((path, update)),
+        metadata_restorer=lambda path, metadata: None,
+        history_repository=HistoryRepository(connection),
     )
 
     results = service.apply_tracks([track], ApplySettings(rename_file=False, export_lrc=False))
@@ -95,12 +102,27 @@ def test_workflow_apply_uses_writer_and_does_not_require_ui(tmp_path):
 
 def test_workflow_blocks_low_confidence_automatic_apply(tmp_path):
     track = _track(tmp_path / "song.mp3", confidence_score=42, requires_review=True)
-    service = MusicCleanerWorkflowService(metadata_writer=lambda path, update: None)
+    connection = connect_database(tmp_path / "history.sqlite3")
+    initialize_schema(connection)
+    service = MusicCleanerWorkflowService(
+        metadata_writer=lambda path, update: None,
+        history_repository=HistoryRepository(connection),
+    )
 
     results = service.apply_tracks([track], ApplySettings())
 
     assert results[0].success is False
     assert "Low-confidence" in results[0].message
+
+
+def test_workflow_requires_history_before_apply(tmp_path):
+    track = _track(tmp_path / "song.mp3")
+    service = MusicCleanerWorkflowService(metadata_writer=lambda path, update: None)
+
+    results = service.apply_tracks([track], ApplySettings())
+
+    assert results[0].success is False
+    assert "History database is required" in results[0].message
 
 
 def _track(path, *, confidence_score=98, requires_review=False):

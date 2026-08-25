@@ -31,6 +31,7 @@ MANIFEST
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!packaging/*.spec
 
 # Installer logs
 pip-log.txt
@@ -227,6 +228,7 @@ __marimo__/
 *.db-shm
 *.db-wal
 *.lrc.tmp
+config/preferences.json
 
 # Local media fixtures and scratch libraries
 media/
@@ -239,6 +241,7 @@ sample_music/
 # Application logs and reports
 logs/
 reports/
+MusicCleaner_Backup/
 
 # Local secrets and API keys
 *.key

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
@@ -176,6 +175,7 @@ class MainWindow(QMainWindow):
         self.add_lyrics_checkbox = QCheckBox("Add lyrics")
         self.export_lrc_checkbox = QCheckBox("Export .lrc")
         self.rename_file_checkbox = QCheckBox("Rename file")
+        self.enable_backup_checkbox = QCheckBox("Enable backup before modification")
         for checkbox in (
             self.update_id3_checkbox,
             self.update_title_checkbox,
@@ -185,6 +185,7 @@ class MainWindow(QMainWindow):
             self.add_lyrics_checkbox,
             self.export_lrc_checkbox,
             self.rename_file_checkbox,
+            self.enable_backup_checkbox,
         ):
             settings_layout.addWidget(checkbox)
         self.update_id3_checkbox.setChecked(True)
@@ -192,6 +193,7 @@ class MainWindow(QMainWindow):
         self.update_artist_checkbox.setChecked(True)
         self.update_album_checkbox.setChecked(True)
         self.add_lyrics_checkbox.setChecked(True)
+        self.enable_backup_checkbox.setChecked(True)
         side_layout.addWidget(settings_group)
 
         self.message_box = QPlainTextEdit()
@@ -215,12 +217,16 @@ class MainWindow(QMainWindow):
         self.preview_button = QPushButton("Preview Changes")
         self.apply_selected_button = QPushButton("Apply Selected")
         self.apply_high_confidence_button = QPushButton("Apply All High Confidence")
+        self.history_button = QPushButton("View History")
+        self.undo_button = QPushButton("Undo Last Batch")
         self.cancel_button = QPushButton("Cancel Processing")
         self.cancel_button.setEnabled(False)
         for button in (
             self.preview_button,
             self.apply_selected_button,
             self.apply_high_confidence_button,
+            self.history_button,
+            self.undo_button,
             self.cancel_button,
         ):
             action_layout.addWidget(button)
@@ -237,6 +243,8 @@ class MainWindow(QMainWindow):
         self.preview_button.clicked.connect(self.preview_changes)
         self.apply_selected_button.clicked.connect(self.apply_selected)
         self.apply_high_confidence_button.clicked.connect(self.apply_all_high_confidence)
+        self.history_button.clicked.connect(self.view_history)
+        self.undo_button.clicked.connect(self.undo_last_batch)
         self.cancel_button.clicked.connect(self.cancel_processing)
         self.table.itemSelectionChanged.connect(self._refresh_detail_panel)
 
@@ -378,7 +386,39 @@ class MainWindow(QMainWindow):
             add_lyrics=self.add_lyrics_checkbox.isChecked(),
             export_lrc=self.export_lrc_checkbox.isChecked(),
             rename_file=self.rename_file_checkbox.isChecked(),
+            enable_backup=self.enable_backup_checkbox.isChecked(),
         )
+
+    @Slot()
+    def view_history(self) -> None:
+        operations = self.workflow_service.list_operations(limit=25)
+        if not operations:
+            self._show_info("No operation history is available.")
+            return
+        lines = [
+            f"{operation.created_at} | {operation.status} | {operation.original_filename} -> {operation.new_filename or '-'}"
+            for operation in operations
+        ]
+        QMessageBox.information(self, "Recent Operations", "\n".join(lines))
+
+    @Slot()
+    def undo_last_batch(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Undo Last Batch",
+            "Restore original metadata and filenames for the last applied batch?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        results = self.workflow_service.undo_last_batch()
+        if not results:
+            self._show_info("No applied batch is available to undo.")
+            return
+        success_count = sum(1 for result in results if result.success)
+        failure_count = len(results) - success_count
+        self._log(f"Undo complete: {success_count} restored, {failure_count} failed.")
 
     def _refresh_table(self) -> None:
         self.table.setRowCount(len(self.tracks))
@@ -478,4 +518,3 @@ def run_desktop_app(workflow_service: MusicCleanerWorkflowService) -> int:
     window = MainWindow(workflow_service)
     window.show()
     return app.exec()
-
