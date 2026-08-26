@@ -30,6 +30,10 @@ class AppConfig:
     max_recognition_segments: int = 3
     always_use_youtube_verification: bool = False
     youtube_search_below_confidence: int = 90
+    default_update_id3_metadata: bool = True
+    default_add_lyrics: bool = True
+    default_export_lrc: bool = False
+    default_rename_file: bool = True
 
 
 def load_config(path: str | Path) -> AppConfig:

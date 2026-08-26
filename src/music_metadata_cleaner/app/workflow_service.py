@@ -161,6 +161,7 @@ class MusicCleanerWorkflowService:
         ffmpeg_available: bool = False,
         ffmpeg_status: str = "Unknown",
         youtube_configured: bool = False,
+        default_apply_settings: ApplySettings | None = None,
         always_use_youtube_verification: bool = False,
         youtube_search_below_confidence: int = 90,
         metadata_reader: Callable[[str | Path], TrackMetadata] = read_id3_metadata,
@@ -184,6 +185,7 @@ class MusicCleanerWorkflowService:
         self.ffmpeg_available = ffmpeg_available
         self.ffmpeg_status = ffmpeg_status
         self.youtube_configured = youtube_configured
+        self.default_apply_settings = default_apply_settings or ApplySettings()
         self.always_use_youtube_verification = always_use_youtube_verification
         self.youtube_search_below_confidence = max(0, min(100, youtube_search_below_confidence))
         self.metadata_reader = metadata_reader

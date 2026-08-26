@@ -11,6 +11,7 @@ from music_metadata_cleaner.app.fallback_recognition_service import FallbackReco
 from music_metadata_cleaner.app.lyrics_service import LyricsService
 from music_metadata_cleaner.app.metadata_enrichment_service import MetadataEnrichmentService
 from music_metadata_cleaner.app.workflow_service import MusicCleanerWorkflowService
+from music_metadata_cleaner.app.workflow_service import ApplySettings
 from music_metadata_cleaner.config import AppConfig, load_config, save_config
 from music_metadata_cleaner.db.connection import connect_database
 from music_metadata_cleaner.db.history import HistoryRepository
@@ -106,6 +107,17 @@ def create_default_workflow_service() -> MusicCleanerWorkflowService:
         ffmpeg_available=ffmpeg_available,
         ffmpeg_status=ffmpeg_status,
         youtube_configured=bool(youtube_api_key),
+        default_apply_settings=ApplySettings(
+            update_id3_metadata=config.default_update_id3_metadata,
+            update_title=True,
+            update_artist=True,
+            update_album=True,
+            add_cover_art=False,
+            add_lyrics=config.default_add_lyrics,
+            export_lrc=config.default_export_lrc,
+            rename_file=config.default_rename_file,
+            enable_backup=config.enable_backup_before_modification,
+        ),
         history_repository=HistoryRepository(connection),
         backup_folder=config.backup_folder_name if config.enable_backup_before_modification else None,
         logger=logger,
