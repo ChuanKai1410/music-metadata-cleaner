@@ -111,7 +111,15 @@ With the default setting, high-confidence AcoustID/MusicBrainz matches skip YouT
 
 ## Run From Source
 
-Recommended on this machine, even if `conda activate` is not working:
+From the project folder:
+
+```powershell
+cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
+$env:PYTHONPATH="$PWD\src"
+python -m music_metadata_cleaner
+```
+
+If you are using the local `music-cleaner` conda environment directly:
 
 ```powershell
 cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
@@ -119,26 +127,7 @@ $env:PYTHONPATH="$PWD\src"
 & "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m music_metadata_cleaner
 ```
 
-If your `music-cleaner` environment is already active:
-
-```powershell
-$env:PYTHONPATH="$PWD\src"
-python -m music_metadata_cleaner
-```
-
-The module name uses underscores only: `music_metadata_cleaner`.
-
-If PowerShell cannot activate the conda environment, repair conda once with:
-
-```powershell
-& "C:\Users\SCSM11\anaconda3\Scripts\conda.exe" init powershell
-```
-
-Then close PowerShell completely, open it again, and run:
-
-```powershell
-conda activate music-cleaner
-```
+For setup details, conda troubleshooting, API keys, `fpcalc`, `ffmpeg`, and first-use workflow, see the [User Guide](docs/USER_GUIDE.md).
 
 ## Tests
 
