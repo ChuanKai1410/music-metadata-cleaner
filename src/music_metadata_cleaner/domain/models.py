@@ -140,6 +140,46 @@ class CandidateRecording:
 
 
 @dataclass(frozen=True)
+class AudioRecognitionSegmentResult:
+    """Recognition result for one extracted audio segment."""
+
+    segment_index: int
+    start_seconds: int
+    artist: str | None = None
+    title: str | None = None
+    album: str | None = None
+    release_date: str | None = None
+    provider: str = ""
+    provider_confidence: float = 0.0
+    song_link: str | None = None
+    raw_status: str = "no_result"
+
+    @property
+    def has_identity(self) -> bool:
+        return bool(self.artist and self.artist.strip() and self.title and self.title.strip())
+
+
+@dataclass(frozen=True)
+class AudioRecognitionResult:
+    """Consensus result from one or more fallback audio-recognition segments."""
+
+    artist: str | None
+    title: str | None
+    album: str | None = None
+    release_date: str | None = None
+    provider: str = ""
+    matched_segments: int = 0
+    total_segments: int = 0
+    provider_confidence: float = 0.0
+    segment_results: tuple[AudioRecognitionSegmentResult, ...] = ()
+    review_reasons: tuple[str, ...] = ()
+
+    @property
+    def has_identity(self) -> bool:
+        return bool(self.artist and self.artist.strip() and self.title and self.title.strip())
+
+
+@dataclass(frozen=True)
 class MusicBrainzIdentifiers:
     """MusicBrainz identifiers linked to enriched canonical metadata."""
 
@@ -163,6 +203,25 @@ class MusicBrainzMetadata:
 
 
 @dataclass(frozen=True)
+class YouTubeCandidate:
+    """Normalized YouTube video candidate used as identification evidence."""
+
+    video_id: str
+    video_url: str
+    title: str
+    channel_id: str | None = None
+    channel_name: str | None = None
+    duration_seconds: int | None = None
+    published_at: str | None = None
+    normalized_title: str | None = None
+    inferred_artist: str | None = None
+    inferred_song_title: str | None = None
+    score: int = 0
+    score_breakdown: tuple[str, ...] = ()
+    version_hints: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ProposedTrackChanges:
     """Preview-ready metadata and file changes for a track."""
 
@@ -176,4 +235,8 @@ class ProposedTrackChanges:
     lyrics: LyricsResult | None = None
     cover_source: str | None = None
     musicbrainz_recording_id: str | None = None
+    youtube_candidate: YouTubeCandidate | None = None
+    youtube_candidates: tuple[YouTubeCandidate, ...] = ()
+    audio_recognition: AudioRecognitionResult | None = None
+    confidence_breakdown: tuple[str, ...] = ()
 

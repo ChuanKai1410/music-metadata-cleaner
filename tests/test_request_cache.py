@@ -22,6 +22,16 @@ def test_request_cache_round_trip(tmp_path):
     assert cache.get("provider", "key") == {"value": "cached"}
 
 
+def test_request_cache_can_expire_old_entries(tmp_path):
+    connection = connect_database(tmp_path / "cache.sqlite3")
+    initialize_schema(connection)
+    cache = RequestCache(connection)
+    cache.set("provider", "key", {"value": "cached"})
+    connection.execute("UPDATE request_cache SET created_at = ? WHERE cache_key = ?", ("2000-01-01T00:00:00+00:00", "key"))
+
+    assert cache.get("provider", "key", max_age_seconds=60) is None
+
+
 def test_request_cache_can_be_read_from_worker_thread(tmp_path):
     connection = connect_database(tmp_path / "cache.sqlite3")
     initialize_schema(connection)

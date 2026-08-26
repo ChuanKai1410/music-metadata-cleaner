@@ -19,8 +19,13 @@ Build a local-first desktop application that safely cleans MP3 metadata, retriev
 - Generate audio fingerprints using Chromaprint through `fpcalc`.
 - Query AcoustID using fingerprint and duration.
 - Treat audio fingerprint matches as the highest-priority evidence.
+- Optionally use AudD as a fallback audio-recognition provider for weak, incomplete, or no-match AcoustID results.
+- Use short temporary audio clips for fallback recognition instead of uploading full MP3 files by default.
+- Delete temporary recognition clips after success or failure where possible.
 - Retrieve MusicBrainz recording and release information for likely matches.
 - Support original-language artist and title values when reliable canonical metadata is available.
+- Use YouTube Data API metadata as secondary verification or fallback evidence for medium, low, or no-match cases when configured.
+- Do not scrape YouTube HTML or download YouTube videos.
 
 ### Metadata Retrieval
 
@@ -68,6 +73,8 @@ Matching should consider:
 - Filename artist/title
 - MusicBrainz recording identity
 - Release information
+- YouTube title/channel/duration/version evidence when YouTube verification is used
+- AudD segment consensus when fallback audio recognition is used
 
 Audio fingerprint evidence should carry the highest weight.
 
@@ -121,9 +128,16 @@ Audio fingerprint evidence should carry the highest weight.
 ## External Dependencies
 
 - `fpcalc` from Chromaprint must be installed or bundled.
+- `ffmpeg` is required only for optional AudD fallback clip extraction.
 - AcoustID API access requires an API key.
+- AudD fallback recognition requires an optional API token and may have usage limits.
 - MusicBrainz requests must use an appropriate user agent.
 - LRCLIB availability and results may vary.
+- YouTube Data API access requires an optional API key and has quota limits.
+
+## YouTube Source Limitation
+
+Many third-party MP3 downloads do not preserve the original YouTube URL, video ID, or sidecar metadata. The application should not assume it can recover the exact original YouTube video. YouTube integration is limited to search, candidate metadata retrieval, verification, and confidence support.
 
 ## Out of Scope for Phase 1
 
@@ -134,4 +148,3 @@ Audio fingerprint evidence should carry the highest weight.
 - SQLite schema implementation
 - PyInstaller packaging
 - Live network behavior
-

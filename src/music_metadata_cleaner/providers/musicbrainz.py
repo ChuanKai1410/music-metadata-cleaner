@@ -8,7 +8,8 @@ from typing import Callable, Protocol
 
 import httpx
 
-from music_metadata_cleaner.domain.models import MusicBrainzIdentifiers, MusicBrainzMetadata
+from music_metadata_cleaner.domain.models import CandidateRecording, MusicBrainzIdentifiers, MusicBrainzMetadata
+from music_metadata_cleaner.domain.recognition import normalize_identity_text
 from music_metadata_cleaner.providers.errors import (
     ProviderNetworkError,
     ProviderRateLimitError,
@@ -76,6 +77,68 @@ class MusicBrainzClient:
         metadata = normalize_recording_metadata(payload)
         self._cache[recording_id] = metadata
         return metadata
+
+    def search_recordings(
+        self,
+        *,
+        artist: str,
+        title: str,
+        duration: int | None = None,
+        limit: int = 5,
+    ) -> list[CandidateRecording]:
+        artist = artist.strip()
+        title = title.strip()
+        if not artist or not title:
+            return []
+
+        safe_limit = max(1, min(limit, 10))
+        query = f'artist:"{artist}" AND recording:"{title}"'
+        request_cache_key = f"recording-search:{query}:{duration}:{safe_limit}"
+        payload = self.request_cache.get("musicbrainz", request_cache_key) if self.request_cache is not None else None
+        if payload is None:
+            payload = self._search_recordings(query, safe_limit)
+            if self.request_cache is not None:
+                self.request_cache.set("musicbrainz", request_cache_key, payload)
+        return normalize_recording_search_results(payload, expected_artist=artist, expected_title=title, expected_duration=duration)
+
+    def _search_recordings(self, query: str, limit: int) -> dict[str, object]:
+        self._respect_rate_limit()
+        url = f"{self.base_url}/recording"
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": self.user_agent,
+        }
+        params = {
+            "fmt": "json",
+            "query": query,
+            "limit": str(limit),
+        }
+
+        try:
+            response = self._get(url, headers=headers, params=params)
+        except httpx.TimeoutException as exc:
+            raise ProviderTimeoutError("MusicBrainz request timed out.") from exc
+        except httpx.NetworkError as exc:
+            raise ProviderNetworkError(f"MusicBrainz network error: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise ProviderNetworkError(f"MusicBrainz request failed: {exc}") from exc
+
+        if response.status_code in {429, 503}:
+            retry_after = response.headers.get("Retry-After")
+            message = "MusicBrainz rate limit or service throttle reached."
+            if retry_after:
+                message = f"{message} Retry after {retry_after} seconds."
+            raise ProviderRateLimitError(message)
+        if response.status_code >= 400:
+            raise ProviderResponseError(f"MusicBrainz returned HTTP {response.status_code}.")
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ProviderResponseError("MusicBrainz returned invalid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise ProviderResponseError("MusicBrainz returned an invalid search payload.")
+        return payload
 
     def _get_recording(self, recording_id: str) -> dict[str, object]:
         self._respect_rate_limit()
@@ -168,6 +231,77 @@ def normalize_recording_metadata(payload: dict[str, object]) -> MusicBrainzMetad
             release_group_id=_release_group_id(release) if release is not None else None,
         ),
     )
+
+
+def normalize_recording_search_results(
+    payload: dict[str, object],
+    *,
+    expected_artist: str,
+    expected_title: str,
+    expected_duration: int | None,
+) -> list[CandidateRecording]:
+    recordings = payload.get("recordings")
+    if not isinstance(recordings, list):
+        return []
+
+    candidates: list[tuple[int, CandidateRecording]] = []
+    for recording in recordings:
+        if not isinstance(recording, dict):
+            continue
+        recording_id = _optional_str(recording.get("id"))
+        title = _optional_str(recording.get("title"))
+        artist = _artist_credit_name(recording.get("artist-credit"))
+        if not recording_id or not artist or not title:
+            continue
+
+        score = _recording_search_score(
+            artist=artist,
+            title=title,
+            duration=_duration_seconds(recording.get("length")),
+            expected_artist=expected_artist,
+            expected_title=expected_title,
+            expected_duration=expected_duration,
+        )
+        candidates.append(
+            (
+                score,
+                CandidateRecording(
+                    recording_id=recording_id,
+                    artist=artist,
+                    title=title,
+                    duration=_duration_seconds(recording.get("length")),
+                    acoustid_score=score / 100,
+                    musicbrainz_recording_id=recording_id,
+                ),
+            )
+        )
+
+    return [candidate for _, candidate in sorted(candidates, key=lambda item: (-item[0], item[1].recording_id))]
+
+
+def _recording_search_score(
+    *,
+    artist: str,
+    title: str,
+    duration: int | None,
+    expected_artist: str,
+    expected_title: str,
+    expected_duration: int | None,
+) -> int:
+    score = 40
+    if normalize_identity_text(artist) == normalize_identity_text(expected_artist):
+        score += 25
+    if normalize_identity_text(title) == normalize_identity_text(expected_title):
+        score += 25
+    if duration is not None and expected_duration is not None:
+        delta = abs(duration - expected_duration)
+        if delta <= 2:
+            score += 10
+        elif delta <= 10:
+            score += 6
+        elif delta <= 20:
+            score += 3
+    return min(100, score)
 
 
 def select_best_release(payload: dict[str, object]) -> SelectedRelease | None:

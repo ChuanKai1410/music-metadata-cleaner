@@ -4,13 +4,23 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from music_metadata_cleaner.domain.models import MusicBrainzMetadata
+from music_metadata_cleaner.domain.models import CandidateRecording, MusicBrainzMetadata
 from music_metadata_cleaner.providers.musicbrainz import MusicBrainzClient
 
 
 class RecordingMetadataProvider(Protocol):
     def get_recording_metadata(self, recording_id: str) -> MusicBrainzMetadata:
         """Return canonical metadata for a MusicBrainz recording ID."""
+
+    def search_recordings(
+        self,
+        *,
+        artist: str,
+        title: str,
+        duration: int | None = None,
+        limit: int = 5,
+    ) -> list[CandidateRecording]:
+        """Return likely MusicBrainz recordings for recognized artist/title text."""
 
 
 class MetadataEnrichmentService:
@@ -25,3 +35,13 @@ class MetadataEnrichmentService:
 
     def enrich_musicbrainz_recording(self, recording_id: str) -> MusicBrainzMetadata:
         return self.provider.get_recording_metadata(recording_id)
+
+    def find_musicbrainz_recording(
+        self,
+        *,
+        artist: str,
+        title: str,
+        duration: int | None = None,
+    ) -> CandidateRecording | None:
+        candidates = self.provider.search_recordings(artist=artist, title=title, duration=duration, limit=5)
+        return candidates[0] if candidates else None
