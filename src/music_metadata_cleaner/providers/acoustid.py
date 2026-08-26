@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Protocol
 
 import httpx
 
@@ -15,6 +16,14 @@ from music_metadata_cleaner.providers.errors import (
 )
 
 
+class RequestCacheProtocol(Protocol):
+    def get(self, provider: str, cache_key: str) -> dict[str, object] | None:
+        """Return cached provider payload."""
+
+    def set(self, provider: str, cache_key: str, payload: dict[str, object]) -> None:
+        """Store provider payload."""
+
+
 class AcoustIDClient:
     """Query AcoustID and normalize candidate recordings."""
 
@@ -25,11 +34,13 @@ class AcoustIDClient:
         http_client: httpx.Client | None = None,
         base_url: str = "https://api.acoustid.org/v2/lookup",
         timeout_seconds: float = 10.0,
+        request_cache: RequestCacheProtocol | None = None,
     ) -> None:
         self.api_key = api_key
         self.http_client = http_client
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
+        self.request_cache = request_cache
 
     def lookup(self, fingerprint: AudioFingerprint) -> list[CandidateRecording]:
         if not self.api_key.strip():
@@ -41,6 +52,11 @@ class AcoustIDClient:
             "fingerprint": fingerprint.fingerprint,
             "meta": "recordings",
         }
+
+        cache_key = f"{fingerprint.duration}:{fingerprint.fingerprint}"
+        cached_payload = self.request_cache.get("acoustid", cache_key) if self.request_cache is not None else None
+        if cached_payload is not None:
+            return normalize_acoustid_candidates(cached_payload)
 
         try:
             response = self._get(params)
@@ -69,6 +85,9 @@ class AcoustIDClient:
         if payload.get("status") != "ok":
             message = payload.get("error", {}).get("message") or payload.get("status") or "unknown error"
             raise ProviderResponseError(f"AcoustID lookup failed: {message}")
+
+        if self.request_cache is not None:
+            self.request_cache.set("acoustid", cache_key, payload)
 
         return normalize_acoustid_candidates(payload)
 
