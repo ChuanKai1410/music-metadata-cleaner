@@ -13,6 +13,7 @@ from music_metadata_cleaner.providers.musicbrainz import (
     RECORDING_INCLUDES,
     MusicBrainzClient,
     normalize_recording_metadata,
+    normalize_recording_search_results,
     select_best_release,
 )
 
@@ -71,6 +72,37 @@ def test_normalize_recording_metadata_preserves_original_language_artist_and_tit
     assert metadata.identifiers.artist_ids == ("artist-id",)
     assert metadata.identifiers.release_id == "official-release"
     assert metadata.identifiers.release_group_id == "release-group-id"
+
+
+def test_normalize_recording_search_results_ranks_identity_and_duration():
+    payload = {
+        "recordings": [
+            {
+                "id": "weak",
+                "title": "Song",
+                "length": 310000,
+                "artist-credit": [{"name": "Other Artist"}],
+            },
+            {
+                "id": "strong",
+                "title": "唱",
+                "length": 185000,
+                "artist-credit": [{"name": "Ado"}],
+            },
+        ]
+    }
+
+    candidates = normalize_recording_search_results(
+        payload,
+        expected_artist="Ado",
+        expected_title="唱",
+        expected_duration=184,
+    )
+
+    assert candidates[0].recording_id == "strong"
+    assert candidates[0].artist == "Ado"
+    assert candidates[0].title == "唱"
+    assert candidates[0].musicbrainz_recording_id == "strong"
 
 
 def test_select_best_release_does_not_blindly_choose_first_release():

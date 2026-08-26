@@ -7,7 +7,10 @@ from music_metadata_cleaner.ui.main_window import run_desktop_app
 
 
 def main() -> int:
-    return run_desktop_app(create_default_workflow_service())
+    return run_desktop_app(
+        create_default_workflow_service(),
+        workflow_service_factory=create_default_workflow_service,
+    )
 
 
 if __name__ == "__main__":

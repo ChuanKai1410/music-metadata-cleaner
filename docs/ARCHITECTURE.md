@@ -85,6 +85,8 @@ Responsibilities:
 - AcoustID client for fingerprint lookup.
 - MusicBrainz client for canonical recording, artist, release, and artwork metadata.
 - LRCLIB client for plain and synchronized lyrics.
+- YouTube Data API client for secondary song-identification evidence.
+- AudD client for fallback audio recognition from short temporary clips.
 - Rate limiting, retries, timeouts, and provider-specific response mapping.
 
 Provider clients should return domain-friendly DTOs or mapper outputs, not UI objects.
@@ -94,6 +96,7 @@ Suggested future modules:
 - `acoustid.py`
 - `musicbrainz.py`
 - `lrclib.py`
+- `youtube.py`
 - `errors.py`
 
 ### Fingerprinting Layer
@@ -183,7 +186,10 @@ UI
 -> files filename parser
 -> fingerprinting fpcalc
 -> providers AcoustID
+-> app fallback recognition service with temporary ffmpeg clips when AcoustID is weak/incomplete/no-match
+-> providers AudD when configured
 -> providers MusicBrainz
+-> providers YouTube for medium/low/no-match verification when configured
 -> providers LRCLIB
 -> domain confidence scoring
 -> app preview service
@@ -204,6 +210,8 @@ The confidence score should combine evidence from:
 - Filename artist/title similarity.
 - MusicBrainz recording identity.
 - Release and track metadata consistency.
+- YouTube video title, channel, duration, and version compatibility when YouTube verification is used.
+- AudD segment consensus when fallback recognition is used.
 
 Recommended thresholds:
 
@@ -212,6 +220,59 @@ Recommended thresholds:
 - `<70`: no automatic apply.
 
 The scoring implementation should produce both a numeric score and explainable evidence so users can understand why a match was suggested.
+
+AcoustID remains the primary audio fingerprint signal. An AcoustID response with a score but no usable artist/title is treated as incomplete identity evidence and must not be promoted to a ready-to-apply metadata proposal. Fallback recognition can supply artist/title evidence, but the workflow still marks weak or conflicting segment consensus for manual review.
+
+## Fallback Audio Recognition Strategy
+
+AudD fallback recognition is optional and configured through `AUDD_API_TOKEN` plus `MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED=true`.
+
+The workflow is:
+
+```text
+AcoustID high-confidence usable identity
+-> skip AudD by default
+
+AcoustID incomplete, low-confidence, or no match
+-> extract temporary audio clips with ffmpeg
+-> send clips progressively to AudD
+-> stop early when two strong matching segments agree
+-> build a consensus recognition result
+-> enrich/verify through the rest of the pipeline where possible
+```
+
+The extractor samples around 25%, 50%, and 75% of the track for long files, adapting for short tracks. It creates collision-safe files in the OS temporary directory, never modifies the source MP3, and deletes clips after success or failure where possible.
+
+The AudD provider only receives these short clips. API tokens are read from configuration, never hardcoded, and must not be written to logs or exception text.
+
+## YouTube Evidence Strategy
+
+YouTube is a secondary verification and fallback source. It must not replace Chromaprint, AcoustID, MusicBrainz, ID3 tags, or filename analysis. Audio fingerprint evidence remains the strongest signal.
+
+The application cannot guarantee recovery of the exact original YouTube video because third-party MP3 download sites generally do not preserve the source URL, video ID, or `yt-dlp` metadata. Phase 8 therefore searches YouTube using cleaned identity evidence:
+
+- MusicBrainz artist/title when available.
+- AcoustID candidate artist/title.
+- Existing ID3 artist/title.
+- A conservatively cleaned filename.
+
+The provider uses the official YouTube Data API v3 only:
+
+- `search.list` returns a small set of video IDs.
+- `videos.list` retrieves batched details including duration.
+- Results are normalized into `YouTubeCandidate` domain models.
+- Provider payloads are cached through the existing SQLite request cache.
+
+YouTube searches are quota-aware:
+
+- High-confidence existing matches skip YouTube by default.
+- Medium-confidence matches can use YouTube as verification.
+- Low-confidence or no-match tracks can use YouTube as fallback discovery.
+- `MUSIC_METADATA_CLEANER_ALWAYS_USE_YOUTUBE_VERIFICATION=true` enables verification even for high-confidence tracks.
+
+The YouTube scoring helper considers title similarity, artist/channel similarity, duration tolerance, official-source hints, and version compatibility. YouTube-only fallback proposals are kept review-required by design.
+
+The workflow records diagnostic YouTube states such as not configured, empty query, searching, matched, no results, candidates rejected, API error, and quota/rate-limit failures. User-facing text is concise, while logs keep enough non-secret context to explain why verification did or did not run.
 
 ## Transaction and Undo Strategy
 
@@ -238,4 +299,3 @@ The architecture should support tests that replace:
 - ID3 adapters with test doubles for orchestration tests.
 
 Domain scoring, filename parsing, rename planning, and lyrics overwrite policy should be unit-tested without network or GUI dependencies.
-

@@ -122,7 +122,70 @@ Validation:
 - View-model tests where possible.
 - Smoke test app startup.
 
-## Phase 8: Packaging
+## Phase 8: YouTube Identification Evidence
+
+Status: implemented.
+
+Goals:
+
+- Add official YouTube Data API v3 search as secondary evidence.
+- Generate cleaned search queries from MusicBrainz, AcoustID, ID3, and filename evidence.
+- Retrieve small candidate sets and batched video durations.
+- Score title, artist/channel, duration, official-source hints, and version compatibility.
+- Integrate YouTube into the existing confidence workflow without replacing audio fingerprints.
+- Add GUI status/details, open-result support, and manual YouTube candidate selection.
+- Cache YouTube API responses.
+- Provide manual regression reporting for private real-world MP3 samples.
+
+Validation:
+
+- Mocked YouTube provider tests.
+- Unit tests for query cleaning, normalization, duration scoring, version detection, and ranking.
+- Workflow tests proving high-confidence matches skip YouTube by default and medium/no-match tracks can use it.
+
+Non-goals:
+
+- YouTube downloading.
+- HTML scraping.
+- Subtitle downloading.
+- Lyrics alignment.
+- Whisper, WhisperX, Demucs, or audio-to-lyrics alignment.
+
+## Phase 8.5: Recognition Accuracy Improvement
+
+Status: implemented.
+
+Goals:
+
+- Audit and fix incomplete identity propagation where a provider score could appear as `Found` while artist/title stayed blank.
+- Add diagnostic recognition and YouTube statuses for easier real-world debugging.
+- Add optional AudD fallback audio recognition behind configuration.
+- Extract short temporary audio clips with ffmpeg instead of uploading whole MP3 files by default.
+- Use multi-segment sampling around 25%, 50%, and 75% of long tracks.
+- Build segment consensus and stop early when enough segments agree.
+- Track recognition provenance in workflow and GUI preview details.
+- Extend manual regression reporting with AcoustID, AudD fallback, and YouTube verification counts.
+
+Validation:
+
+- Mocked AudD provider tests.
+- Unit tests for segment timestamps, ffmpeg command generation, consensus, Unicode normalization, fallback triggering, and workflow data propagation.
+- GUI smoke tests for recognition and diagnostics display.
+
+Non-goals:
+
+- Lyrics alignment.
+- Whisper, WhisperX, Demucs, or source separation.
+- YouTube downloading or subtitle downloading.
+
+## Phase 9: Lyrics Alignment
+
+Goals:
+
+- Investigate synchronized lyrics alignment only after song identification is stable.
+- Preserve the existing lyrics overwrite safety model.
+
+## Phase 10: Packaging
 
 Goals:
 
@@ -137,7 +200,7 @@ Validation:
 - Test on clean Windows environment.
 - Confirm no credentials are packaged.
 
-## Phase 9: Refinement
+## Phase 11: Refinement
 
 Goals:
 
@@ -147,4 +210,3 @@ Goals:
 - Improve cache controls.
 - Add batch reports.
 - Add user documentation.
-

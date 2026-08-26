@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+import webbrowser
+from typing import Callable
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
@@ -19,6 +22,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QInputDialog,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -34,6 +39,7 @@ from music_metadata_cleaner.app.workflow_service import (
     MusicCleanerWorkflowService,
     WorkflowTrack,
 )
+from music_metadata_cleaner.files.safe_paths import generate_mp3_filename
 
 
 COLUMNS = [
@@ -45,6 +51,8 @@ COLUMNS = [
     "Metadata Status",
     "Lyrics Status",
     "Cover Status",
+    "Recognition",
+    "YouTube Status",
     "Processing Status",
 ]
 
@@ -73,9 +81,15 @@ class ProcessingWorker(QObject):
 class MainWindow(QMainWindow):
     """Main desktop workflow window."""
 
-    def __init__(self, workflow_service: MusicCleanerWorkflowService) -> None:
+    def __init__(
+        self,
+        workflow_service: MusicCleanerWorkflowService,
+        *,
+        workflow_service_factory: Callable[[], MusicCleanerWorkflowService] | None = None,
+    ) -> None:
         super().__init__()
         self.workflow_service = workflow_service
+        self.workflow_service_factory = workflow_service_factory
         self.tracks: list[WorkflowTrack] = []
         self.processing_thread: QThread | None = None
         self.processing_worker: ProcessingWorker | None = None
@@ -92,6 +106,7 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         root_layout = QVBoxLayout(central)
+        root_layout.setStretch(0, 0)
 
         file_group = QGroupBox("File Management")
         file_layout = QHBoxLayout(file_group)
@@ -112,6 +127,8 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(file_group)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -138,6 +155,12 @@ class MainWindow(QMainWindow):
         self.proposed_filename = QLabel("-")
         self.proposed_lyrics = QLabel("-")
         self.proposed_cover = QLabel("-")
+        self.recognition_source = QLabel("-")
+        self.diagnostic_details = QLabel("-")
+        self.youtube_candidate = QLabel("-")
+        self.youtube_channel = QLabel("-")
+        self.youtube_duration = QLabel("-")
+        self.youtube_confidence = QLabel("-")
         for label in (
             self.current_filename,
             self.current_artist,
@@ -151,6 +174,12 @@ class MainWindow(QMainWindow):
             self.proposed_filename,
             self.proposed_lyrics,
             self.proposed_cover,
+            self.recognition_source,
+            self.diagnostic_details,
+            self.youtube_candidate,
+            self.youtube_channel,
+            self.youtube_duration,
+            self.youtube_confidence,
         ):
             label.setWordWrap(True)
         self.detail_layout.addRow("Filename", self.current_filename)
@@ -165,6 +194,20 @@ class MainWindow(QMainWindow):
         self.detail_layout.addRow("New Filename", self.proposed_filename)
         self.detail_layout.addRow("Lyrics Source", self.proposed_lyrics)
         self.detail_layout.addRow("Cover Source", self.proposed_cover)
+        self.detail_layout.addRow("Recognition", self.recognition_source)
+        self.detail_layout.addRow("Diagnostics", self.diagnostic_details)
+        self.detail_layout.addRow("YouTube Candidate", self.youtube_candidate)
+        self.detail_layout.addRow("YouTube Channel", self.youtube_channel)
+        self.detail_layout.addRow("YouTube Duration", self.youtube_duration)
+        self.detail_layout.addRow("YouTube Evidence", self.youtube_confidence)
+        youtube_button_layout = QHBoxLayout()
+        self.open_youtube_button = QPushButton("Open YouTube Result")
+        self.select_youtube_button = QPushButton("Select YouTube Candidate")
+        self.open_youtube_button.setEnabled(False)
+        self.select_youtube_button.setEnabled(False)
+        youtube_button_layout.addWidget(self.open_youtube_button)
+        youtube_button_layout.addWidget(self.select_youtube_button)
+        self.detail_layout.addRow(youtube_button_layout)
         side_layout.addWidget(self.detail_group)
 
         settings_group = QGroupBox("Apply Settings")
@@ -196,7 +239,17 @@ class MainWindow(QMainWindow):
         self.update_album_checkbox.setChecked(True)
         self.add_lyrics_checkbox.setChecked(True)
         self.enable_backup_checkbox.setChecked(True)
+        self.test_recognition_button = QPushButton("Test Recognition Setup")
+        settings_layout.addWidget(self.test_recognition_button)
         side_layout.addWidget(settings_group)
+
+        runtime_group = QGroupBox("Runtime Recognition Configuration")
+        runtime_layout = QVBoxLayout(runtime_group)
+        self.runtime_config_text = QPlainTextEdit()
+        self.runtime_config_text.setReadOnly(True)
+        self.runtime_config_text.setMaximumHeight(120)
+        runtime_layout.addWidget(self.runtime_config_text)
+        side_layout.addWidget(runtime_group)
 
         self.message_box = QPlainTextEdit()
         self.message_box.setReadOnly(True)
@@ -206,13 +259,18 @@ class MainWindow(QMainWindow):
         splitter.setSizes([760, 420])
         root_layout.addWidget(splitter, 1)
 
+        footer = QWidget()
+        footer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        footer_layout = QVBoxLayout(footer)
+        footer_layout.setContentsMargins(0, 0, 0, 0)
         progress_layout = QHBoxLayout()
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_label = QLabel("Idle")
+        self.progress_label.setMinimumWidth(120)
         progress_layout.addWidget(self.progress_bar, 1)
         progress_layout.addWidget(self.progress_label)
-        root_layout.addLayout(progress_layout)
+        footer_layout.addLayout(progress_layout)
 
         action_layout = QHBoxLayout()
         action_layout.addStretch(1)
@@ -235,7 +293,8 @@ class MainWindow(QMainWindow):
             self.cancel_button,
         ):
             action_layout.addWidget(button)
-        root_layout.addLayout(action_layout)
+        footer_layout.addLayout(action_layout)
+        root_layout.addWidget(footer, 0)
 
         self.setCentralWidget(central)
 
@@ -249,10 +308,14 @@ class MainWindow(QMainWindow):
         self.apply_selected_button.clicked.connect(self.apply_selected)
         self.apply_high_confidence_button.clicked.connect(self.apply_all_high_confidence)
         self.remove_high_confidence_button.clicked.connect(self.remove_applied_high_confidence)
+        self.open_youtube_button.clicked.connect(self.open_youtube_result)
+        self.select_youtube_button.clicked.connect(self.select_youtube_candidate)
         self.history_button.clicked.connect(self.view_history)
         self.undo_button.clicked.connect(self.undo_last_batch)
         self.cancel_button.clicked.connect(self.cancel_processing)
+        self.test_recognition_button.clicked.connect(self.test_recognition_setup)
         self.table.itemSelectionChanged.connect(self._refresh_detail_panel)
+        self._refresh_runtime_config()
 
     @Slot()
     def add_files(self) -> None:
@@ -300,6 +363,7 @@ class MainWindow(QMainWindow):
             return
         if self.processing_thread is not None:
             return
+        self._reload_workflow_service()
 
         self.cancellation_token = CancellationToken()
         self.processing_thread = QThread()
@@ -419,6 +483,18 @@ class MainWindow(QMainWindow):
         )
 
     @Slot()
+    def test_recognition_setup(self) -> None:
+        self._reload_workflow_service()
+        self._refresh_runtime_config()
+        checks = self.workflow_service.test_recognition_setup()
+        lines = ["Recognition setup test:"]
+        for check in checks:
+            detail = f" - {check.detail}" if check.detail else ""
+            lines.append(f"{check.name}: {check.status}{detail}")
+        self._log("\n".join(lines))
+        self._refresh_runtime_config()
+
+    @Slot()
     def view_history(self) -> None:
         operations = self.workflow_service.list_operations(limit=25)
         if not operations:
@@ -449,6 +525,72 @@ class MainWindow(QMainWindow):
         failure_count = len(results) - success_count
         self._log(f"Undo complete: {success_count} restored, {failure_count} failed.")
 
+    @Slot()
+    def open_youtube_result(self) -> None:
+        track = self._selected_track()
+        candidate = track.proposed.youtube_candidate if track and track.proposed else None
+        if candidate is None:
+            self._show_info("No YouTube result is available for the selected row.")
+            return
+        webbrowser.open(candidate.video_url)
+
+    @Slot()
+    def select_youtube_candidate(self) -> None:
+        row = self._selected_rows()[0] if self._selected_rows() else None
+        if row is None:
+            self._show_info("Select a row first.")
+            return
+
+        track = self.tracks[row]
+        if track.proposed is None or not track.proposed.youtube_candidates:
+            self._show_info("No YouTube candidates are available for the selected row.")
+            return
+
+        labels = [
+            self._youtube_choice_label(index, candidate)
+            for index, candidate in enumerate(track.proposed.youtube_candidates, start=1)
+        ]
+        choice, accepted = QInputDialog.getItem(
+            self,
+            "Select YouTube Candidate",
+            "Use this candidate:",
+            labels,
+            0,
+            False,
+        )
+        if not accepted or not choice:
+            return
+
+        selected_index = labels.index(choice)
+        candidate = track.proposed.youtube_candidates[selected_index]
+        proposed = replace(
+            track.proposed,
+            artist=candidate.inferred_artist or track.proposed.artist,
+            title=candidate.inferred_song_title or track.proposed.title,
+            duration=candidate.duration_seconds or track.proposed.duration,
+            filename=(
+                generate_mp3_filename(candidate.inferred_artist, candidate.inferred_song_title)
+                if candidate.inferred_artist and candidate.inferred_song_title
+                else track.proposed.filename
+            ),
+            youtube_candidate=candidate,
+            confidence_breakdown=(
+                *track.proposed.confidence_breakdown,
+                "YouTube candidate manually selected by user.",
+            ),
+        )
+        self.tracks[row] = replace(
+            track,
+            proposed=proposed,
+            youtube_status="Matched",
+            requires_review=False,
+            processing_status="Ready",
+        )
+        self._refresh_table()
+        self.table.selectRow(row)
+        self._refresh_detail_panel()
+        self._log(f"Selected YouTube candidate for {track.path.name}.")
+
     def _refresh_table(self) -> None:
         self.table.setRowCount(len(self.tracks))
         for row, track in enumerate(self.tracks):
@@ -462,6 +604,8 @@ class MainWindow(QMainWindow):
                 track.metadata_status,
                 track.lyrics_status,
                 track.cover_status,
+                track.recognition_status,
+                track.youtube_status,
                 track.processing_status,
             ]
             for column, value in enumerate(values):
@@ -484,6 +628,7 @@ class MainWindow(QMainWindow):
         current = track.current_metadata
         proposed = track.proposed
         lyrics = proposed.lyrics if proposed is not None else None
+        youtube = proposed.youtube_candidate if proposed is not None else None
         self.current_filename.setText(track.path.name)
         self.current_artist.setText(_dash(current.artist))
         self.current_title.setText(_dash(current.title))
@@ -496,6 +641,14 @@ class MainWindow(QMainWindow):
         self.proposed_filename.setText(_dash(proposed.filename if proposed else None))
         self.proposed_lyrics.setText(_dash(lyrics.source if lyrics else None))
         self.proposed_cover.setText(_dash(proposed.cover_source if proposed else None))
+        self.recognition_source.setText(_dash(track.recognition_status))
+        self.diagnostic_details.setText(_dash(track.diagnostic_status))
+        self.youtube_candidate.setText(_dash(youtube.title if youtube else None))
+        self.youtube_channel.setText(_dash(youtube.channel_name if youtube else None))
+        self.youtube_duration.setText(_format_duration(youtube.duration_seconds) if youtube else "-")
+        self.youtube_confidence.setText(_dash(_youtube_strength(youtube.score) if youtube else None))
+        self.open_youtube_button.setEnabled(youtube is not None)
+        self.select_youtube_button.setEnabled(bool(proposed and proposed.youtube_candidates))
 
     def _set_detail_empty(self) -> None:
         for label in (
@@ -511,11 +664,23 @@ class MainWindow(QMainWindow):
             self.proposed_filename,
             self.proposed_lyrics,
             self.proposed_cover,
+            self.recognition_source,
+            self.diagnostic_details,
+            self.youtube_candidate,
+            self.youtube_channel,
+            self.youtube_duration,
+            self.youtube_confidence,
         ):
             label.setText("-")
+        self.open_youtube_button.setEnabled(False)
+        self.select_youtube_button.setEnabled(False)
 
     def _selected_rows(self) -> list[int]:
         return sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+
+    def _selected_track(self) -> WorkflowTrack | None:
+        rows = self._selected_rows()
+        return self.tracks[rows[0]] if rows else None
 
     def _confidence_text(self, track: WorkflowTrack) -> str:
         return f"{track.confidence_score}%"
@@ -530,8 +695,23 @@ class MainWindow(QMainWindow):
     def _log(self, message: str) -> None:
         self.message_box.appendPlainText(message)
 
+    def _refresh_runtime_config(self) -> None:
+        self.runtime_config_text.setPlainText("\n".join(self.workflow_service.runtime_recognition_configuration()))
+
+    def _reload_workflow_service(self) -> None:
+        if self.workflow_service_factory is None:
+            return
+        self.workflow_service = self.workflow_service_factory()
+        self._refresh_runtime_config()
+
     def _show_info(self, message: str) -> None:
         QMessageBox.information(self, "Music Metadata Cleaner", message)
+
+    def _youtube_choice_label(self, index: int, candidate) -> str:
+        return (
+            f"{index}. {candidate.title} | {candidate.channel_name or '-'} | "
+            f"{_format_duration(candidate.duration_seconds)} | {candidate.score}%"
+        )
 
     def _clear_applied_high_confidence_paths(self) -> None:
         self.applied_high_confidence_paths.clear()
@@ -551,8 +731,29 @@ def _dash(value: object | None) -> str:
     return str(value) if value not in {None, ""} else "-"
 
 
-def run_desktop_app(workflow_service: MusicCleanerWorkflowService) -> int:
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "-"
+    minutes, remaining = divmod(seconds, 60)
+    return f"{minutes}:{remaining:02d}"
+
+
+def _youtube_strength(score: int) -> str:
+    if score >= 85:
+        return "Strong"
+    if score >= 70:
+        return "Moderate"
+    if score > 0:
+        return "Weak"
+    return "No match"
+
+
+def run_desktop_app(
+    workflow_service: MusicCleanerWorkflowService,
+    *,
+    workflow_service_factory: Callable[[], MusicCleanerWorkflowService] | None = None,
+) -> int:
     app = QApplication.instance() or QApplication([])
-    window = MainWindow(workflow_service)
+    window = MainWindow(workflow_service, workflow_service_factory=workflow_service_factory)
     window.show()
     return app.exec()
