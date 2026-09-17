@@ -12,6 +12,10 @@ class RequestCache:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 
+    def clear(self, provider: str) -> None:
+        with self.connection:
+            self.connection.execute("DELETE FROM request_cache WHERE provider = ?", (provider,))
+
     def get(self, provider: str, cache_key: str, max_age_seconds: int | None = None) -> dict[str, Any] | None:
         row = self.connection.execute(
             "SELECT payload_json, created_at FROM request_cache WHERE provider = ? AND cache_key = ?",

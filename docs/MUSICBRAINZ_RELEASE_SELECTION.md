@@ -1,3 +1,5 @@
+> Historical reference only. This provider is disconnected from the Phase 9 production application. See ARCHITECTURE.md for the active SearXNG pipeline.
+
 # MusicBrainz Release Selection
 
 Given a confirmed MusicBrainz recording ID, Music Metadata Cleaner must enrich the local file with canonical metadata without blindly selecting the first release returned by MusicBrainz.

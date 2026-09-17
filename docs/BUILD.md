@@ -1,63 +1,47 @@
-# Build Instructions
+# Build and test
 
-## Windows Development Setup
+Use Python 3.10+ with a working PySide6 installation. A clean virtual environment is recommended when a system/Anaconda installation has conflicting Qt DLLs.
 
-```powershell
-cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
+```sh
 python -m pip install -r requirements.txt
 ```
 
-Optional runtime tools:
+Run from source on Linux:
 
-- Install Chromaprint and make `fpcalc.exe` available on `PATH`.
-- Set `ACOUSTID_API_KEY` for audio identification.
-- Set `MUSIC_METADATA_CLEANER_USER_AGENT` to a contactable app user agent for provider requests.
+```sh
+PYTHONPATH=src python -m music_metadata_cleaner
+```
 
-## Run From Source
+Windows PowerShell:
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
 python -m music_metadata_cleaner
 ```
 
-## Run Tests
+No audio executables or recognition credentials are needed. Configure SearXNG through Settings or SEARXNG_URL. New preferences/logs use platform directories; existing working-directory history is preserved.
 
-```powershell
-python -m pytest
+## Tests
+
+```sh
+python -m pytest -q
+RUN_QT_GUI_TESTS=1 QT_QPA_PLATFORM=offscreen python -m pytest -q
 ```
 
-GUI smoke tests are opt-in because some CI or Anaconda environments cannot load Qt:
+PowerShell GUI test environment:
 
 ```powershell
 $env:RUN_QT_GUI_TESTS="1"
-python -m pytest tests/test_gui_smoke.py
+$env:QT_QPA_PLATFORM="offscreen"
+python -m pytest -q
 ```
 
-## Build Executable
+All automated web requests are mocked. GUI tests require compatible native Qt libraries. A DLL loader failure is an environment error, not a reason to skip checking the UI in a working interpreter.
 
-```powershell
-python -m PyInstaller packaging\MusicMetadataCleaner.spec --noconfirm
+## Packaging
+
+```sh
+python -m PyInstaller packaging/MusicMetadataCleaner.spec
 ```
 
-Expected output:
-
-```text
-dist\MusicMetadataCleaner.exe
-```
-
-The executable creates local runtime files next to the launch working directory unless configured otherwise:
-
-- `config/preferences.json`
-- `music_metadata_cleaner.sqlite3`
-- `logs/application.log`
-- `MusicCleaner_Backup/`
-
-## Release Checklist
-
-- Confirm PySide6 imports successfully outside Anaconda if Anaconda DLL conflicts occur.
-- Add a valid `assets/icons/app.ico`.
-- Verify `fpcalc.exe` installation or bundling strategy.
-- Run tests on a clean Windows machine.
-- Confirm no API keys are packaged.
-- Smoke-test scanning, preview, apply, backup, and undo against disposable MP3 copies.
-
+Build separately on each target OS. The source supports Windows and Linux; native Linux packaging must be validated on Linux. Do not package local preferences, histories, credentials, or sample MP3s. Historical recognition modules are excluded from the desktop bundle.

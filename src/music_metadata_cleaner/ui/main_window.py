@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
-import webbrowser
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QInputDialog,
+    QLineEdit,
+    QDialog,
     QSizePolicy,
     QSplitter,
     QTableWidget,
@@ -39,11 +41,10 @@ from music_metadata_cleaner.app.workflow_service import (
     WorkflowTrack,
 )
 from music_metadata_cleaner.config import load_config
-from music_metadata_cleaner.files.safe_paths import generate_mp3_filename
 from music_metadata_cleaner.ui.settings_dialog import SettingsDialog
 
 
-COLUMNS = ["File", "Artist", "Title", "Confidence", "Lyrics", "Recognition", "Status"]
+COLUMNS = ["File", "Artist", "Title", "Confidence", "Lyrics", "Status"]
 
 
 class ProcessingWorker(QObject):
@@ -55,15 +56,36 @@ class ProcessingWorker(QObject):
         service: MusicCleanerWorkflowService,
         tracks: list[WorkflowTrack],
         token: CancellationToken,
+        candidate_index: int | None = None,
     ) -> None:
         super().__init__()
         self.service = service
         self.tracks = tracks
         self.token = token
+        self.candidate_index = candidate_index
 
     @Slot()
     def run(self) -> None:
-        results = self.service.process_tracks(self.tracks, cancellation_token=self.token, progress_callback=self.progress.emit)
+        try:
+            results = (
+                [self.service.use_candidate(self.tracks[0], self.candidate_index)]
+                if self.candidate_index is not None
+                else self.service.process_tracks(
+                    self.tracks,
+                    cancellation_token=self.token,
+                    progress_callback=self.progress.emit,
+                )
+            )
+        except Exception:
+            results = [
+                replace(
+                    track,
+                    proposed=None,
+                    processing_status="Search Failed",
+                    error_message="Search could not complete.",
+                )
+                for track in self.tracks
+            ]
         self.finished.emit(results)
 
 
@@ -74,7 +96,9 @@ class MainWindow(QMainWindow):
         self,
         workflow_service: MusicCleanerWorkflowService,
         *,
-        workflow_service_factory: Callable[[], MusicCleanerWorkflowService] | None = None,
+        workflow_service_factory: (
+            Callable[[], MusicCleanerWorkflowService] | None
+        ) = None,
     ) -> None:
         super().__init__()
         self.workflow_service = workflow_service
@@ -128,7 +152,9 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        splitter.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -137,6 +163,7 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setVisible(False)
         self.table.setSortingEnabled(False)
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         splitter.addWidget(self.table)
 
         side_panel = QWidget()
@@ -171,38 +198,43 @@ class MainWindow(QMainWindow):
             compare_layout.addWidget(QLabel(name), row, 0)
             compare_layout.addWidget(current, row, 1)
             compare_layout.addWidget(proposed, row, 2)
+            current.setTextFormat(Qt.TextFormat.PlainText)
+            proposed.setTextFormat(Qt.TextFormat.PlainText)
             current.setWordWrap(True)
             proposed.setWordWrap(True)
         detail_layout.addLayout(compare_layout)
 
-        summary_group = QGroupBox("Recognition")
+        summary_group = QGroupBox("Search Evidence")
         summary_layout = QGridLayout(summary_group)
-        self.recognition_source = QLabel("-")
+        self.search_query = QLabel("-")
+        self.search_query.setWordWrap(True)
         self.confidence_summary = QLabel("-")
-        self.youtube_summary = QLabel("-")
+        self.sources_summary = QLabel("-")
         self.lyrics_summary = QLabel("-")
-        summary_layout.addWidget(QLabel("Source"), 0, 0)
-        summary_layout.addWidget(self.recognition_source, 0, 1)
+        summary_layout.addWidget(QLabel("Query"), 0, 0)
+        summary_layout.addWidget(self.search_query, 0, 1)
         summary_layout.addWidget(QLabel("Confidence"), 1, 0)
         summary_layout.addWidget(self.confidence_summary, 1, 1)
-        summary_layout.addWidget(QLabel("YouTube"), 2, 0)
-        summary_layout.addWidget(self.youtube_summary, 2, 1)
+        summary_layout.addWidget(QLabel("Sources found"), 2, 0)
+        summary_layout.addWidget(self.sources_summary, 2, 1)
         summary_layout.addWidget(QLabel("Lyrics"), 3, 0)
         summary_layout.addWidget(self.lyrics_summary, 3, 1)
         detail_layout.addWidget(summary_group)
 
         detail_buttons = QHBoxLayout()
-        self.diagnostics_button = QPushButton("Diagnostics")
-        self.open_youtube_button = QPushButton("Open YouTube Result")
-        self.select_youtube_button = QPushButton("Select YouTube Candidate")
-        self.diagnostics_button.setEnabled(False)
-        self.open_youtube_button.setEnabled(False)
-        self.select_youtube_button.setEnabled(False)
+        self.diagnostics_button = QPushButton("View Search Evidence")
+        self.use_candidate_button = QPushButton("Use Candidate")
         detail_buttons.addWidget(self.diagnostics_button)
-        detail_buttons.addWidget(self.open_youtube_button)
-        detail_buttons.addWidget(self.select_youtube_button)
-        detail_buttons.addStretch(1)
+        detail_buttons.addWidget(self.use_candidate_button)
         detail_layout.addLayout(detail_buttons)
+        detail_layout.addWidget(QLabel("Search keywords:"))
+        self.search_keywords = QLineEdit()
+        self.search_keywords.setPlaceholderText(
+            "Artist, title, or other known song details"
+        )
+        self.manual_search_button = QPushButton("Search")
+        detail_layout.addWidget(self.search_keywords)
+        detail_layout.addWidget(self.manual_search_button)
         side_layout.addWidget(self.detail_group)
         side_layout.addStretch(1)
         splitter.addWidget(side_panel)
@@ -257,10 +289,14 @@ class MainWindow(QMainWindow):
         self.scan_button.clicked.connect(self.scan_files)
         self.preview_button.clicked.connect(self.preview_changes)
         self.apply_selected_button.clicked.connect(self.apply_selected)
-        self.apply_high_confidence_button.clicked.connect(self.apply_all_high_confidence)
-        self.remove_high_confidence_button.clicked.connect(self.remove_applied_high_confidence)
-        self.open_youtube_button.clicked.connect(self.open_youtube_result)
-        self.select_youtube_button.clicked.connect(self.select_youtube_candidate)
+        self.apply_high_confidence_button.clicked.connect(
+            self.apply_all_high_confidence
+        )
+        self.remove_high_confidence_button.clicked.connect(
+            self.remove_applied_high_confidence
+        )
+        self.manual_search_button.clicked.connect(self.manual_search)
+        self.use_candidate_button.clicked.connect(self.use_candidate)
         self.diagnostics_button.clicked.connect(self.view_track_diagnostics)
         self.history_button.clicked.connect(self.view_history)
         self.undo_button.clicked.connect(self.undo_last_batch)
@@ -271,20 +307,29 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def add_files(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Add MP3 Files", "", "MP3 Files (*.mp3)")
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Add MP3 Files",
+            load_config(CONFIG_PATH).default_music_folder,
+            "MP3 Files (*.mp3)",
+        )
         if paths:
             self._add_paths([Path(path) for path in paths])
 
     @Slot()
     def add_folder(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Add Folder")
+        path = QFileDialog.getExistingDirectory(
+            self, "Add Folder", load_config(CONFIG_PATH).default_music_folder
+        )
         if path:
             self._add_paths([Path(path)])
 
     def _add_paths(self, paths: list[Path]) -> None:
         discovered = self.workflow_service.discover(paths)
         existing = {track.path.resolve() for track in self.tracks}
-        self.tracks.extend(track for track in discovered if track.path.resolve() not in existing)
+        self.tracks.extend(
+            track for track in discovered if track.path.resolve() not in existing
+        )
         self._clear_applied_high_confidence_paths()
         self._refresh_table()
         self._set_status(f"Added {len(discovered)} MP3 file(s).")
@@ -318,11 +363,17 @@ class MainWindow(QMainWindow):
             return
         if self.processing_thread is not None:
             return
-        self._reload_workflow_service()
+        self._start_processing(self.tracks, list(range(len(self.tracks))))
 
+    def _start_processing(self, tracks, rows, candidate_index=None):
+        self._reload_workflow_service()
+        self._processing_rows = rows
+        self._set_busy(True)
         self.cancellation_token = CancellationToken()
         self.processing_thread = QThread()
-        self.processing_worker = ProcessingWorker(self.workflow_service, self.tracks, self.cancellation_token)
+        self.processing_worker = ProcessingWorker(
+            self.workflow_service, tracks, self.cancellation_token, candidate_index
+        )
         self.processing_worker.moveToThread(self.processing_thread)
         self.processing_thread.started.connect(self.processing_worker.run)
         self.processing_worker.progress.connect(self._handle_progress)
@@ -348,15 +399,20 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _handle_progress(self, progress: BatchProgress) -> None:
-        value = round((progress.processed / progress.total) * 100) if progress.total else 0
+        value = (
+            round((progress.processed / progress.total) * 100) if progress.total else 0
+        )
         self.progress_bar.setValue(value)
-        current = progress.current_path.name if progress.current_path is not None else "-"
+        current = (
+            progress.current_path.name if progress.current_path is not None else "-"
+        )
         self.progress_label.setText(f"Scanning {progress.processed} / {progress.total}")
         self.status_label.setText(f"Current: {current}")
 
     @Slot(object)
     def _handle_processing_finished(self, tracks: list[WorkflowTrack]) -> None:
-        self.tracks = tracks
+        for row, track in zip(self._processing_rows, tracks):
+            self.tracks[row] = track
         self._clear_applied_high_confidence_paths()
         self.cancel_button.setEnabled(False)
         self.preview_button.setEnabled(True)
@@ -365,16 +421,43 @@ class MainWindow(QMainWindow):
         self.progress_label.setText("Complete")
         ready = sum(1 for track in tracks if _status_text(track) == "Ready")
         review = sum(1 for track in tracks if _status_text(track) == "Review")
-        failed = sum(1 for track in tracks if _status_text(track) == "Failed")
+        failed = sum(
+            1
+            for track in tracks
+            if _status_text(track) in {"Search Failed", "Invalid MP3"}
+        )
         self._refresh_table()
         self._refresh_detail_panel()
-        self._set_status(f"{len(tracks)} processed - {ready} ready, {review} review, {failed} failed.")
+        self._set_status(
+            f"{len(tracks)} processed - {ready} ready, {review} review, {failed} failed."
+        )
 
     @Slot()
     def _clear_processing_thread(self) -> None:
         self.processing_thread = None
         self.processing_worker = None
         self.cancellation_token = None
+        self._set_busy(False)
+        self._refresh_detail_panel()
+        self.remove_high_confidence_button.setEnabled(
+            bool(self.applied_high_confidence_paths)
+        )
+
+    def _set_busy(self, busy):
+        for button in (
+            self.add_files_button,
+            self.add_folder_button,
+            self.remove_files_button,
+            self.clear_files_button,
+            self.apply_selected_button,
+            self.apply_high_confidence_button,
+            self.undo_button,
+            self.settings_button,
+            self.manual_search_button,
+            self.use_candidate_button,
+            self.remove_high_confidence_button,
+        ):
+            button.setEnabled(not busy)
 
     @Slot()
     def apply_selected(self) -> None:
@@ -386,13 +469,21 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def apply_all_high_confidence(self) -> None:
-        tracks = [track for track in self.tracks if track.confidence_score >= 90 and not track.requires_review]
+        tracks = [
+            track
+            for track in self.tracks
+            if track.confidence_score >= 80 and not track.requires_review
+        ]
         if not tracks:
             self._show_info("No high-confidence ready tracks are available.")
             return
         results = self._apply_tracks(tracks)
-        self.applied_high_confidence_paths = {result.path.resolve() for result in results if result.success}
-        self.remove_high_confidence_button.setEnabled(bool(self.applied_high_confidence_paths))
+        self.applied_high_confidence_paths = (
+            getattr(self, "_last_applied_paths", set()) if results else set()
+        )
+        self.remove_high_confidence_button.setEnabled(
+            bool(self.applied_high_confidence_paths)
+        )
 
     @Slot()
     def remove_applied_high_confidence(self) -> None:
@@ -400,7 +491,9 @@ class MainWindow(QMainWindow):
             return
         before_count = len(self.tracks)
         self.tracks = [
-            track for track in self.tracks if track.path.resolve() not in self.applied_high_confidence_paths
+            track
+            for track in self.tracks
+            if track.path.resolve() not in self.applied_high_confidence_paths
         ]
         removed_count = before_count - len(self.tracks)
         self._clear_applied_high_confidence_paths()
@@ -418,13 +511,38 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return []
 
-        results = self.workflow_service.apply_tracks(tracks, self.workflow_service.default_apply_settings)
+        results = self.workflow_service.apply_tracks(
+            tracks, self.workflow_service.default_apply_settings
+        )
         success_count = sum(1 for result in results if result.success)
         failure_count = len(results) - success_count
-        self._set_status(f"Apply complete: {success_count} succeeded, {failure_count} failed.")
+        self._set_status(
+            f"Apply complete: {success_count} succeeded, {failure_count} failed."
+        )
+        self._last_applied_paths = set()
         for result in results:
             if not result.success:
                 self._log(f"{result.path.name}: {result.message}")
+                continue
+            for index, track in enumerate(self.tracks):
+                if track.path == result.path:
+                    path = (
+                        track.path.with_name(track.proposed.filename)
+                        if self.workflow_service.default_apply_settings.rename_file
+                        and track.proposed
+                        else track.path
+                    )
+                    self._last_applied_paths.add(path.resolve())
+                    refreshed = self.workflow_service.discover([path])
+                    self.tracks[index] = (
+                        replace(refreshed[0], processing_status="Applied")
+                        if refreshed
+                        else replace(
+                            track, path=path, proposed=None, processing_status="Applied"
+                        )
+                    )
+        self._refresh_table()
+        self._refresh_detail_panel()
         return results
 
     @Slot()
@@ -468,74 +586,93 @@ class MainWindow(QMainWindow):
             return
         success_count = sum(1 for result in results if result.success)
         failure_count = len(results) - success_count
-        self._set_status(f"Undo complete: {success_count} restored, {failure_count} failed.")
+        paths = [track.path for track in self.tracks if track.path.exists()] + [
+            result.path for result in results if result.success
+        ]
+        self.tracks = self.workflow_service.discover(paths)
+        self._refresh_table()
+        self._refresh_detail_panel()
+        self._set_status(
+            f"Undo complete: {success_count} restored, {failure_count} failed."
+        )
 
     @Slot()
     def view_track_diagnostics(self) -> None:
         track = self._selected_track()
         if track is None:
             return
-        proposed = track.proposed
         lines = [
-            f"File: {track.path.name}",
-            f"Status: {_status_text(track)}",
-            f"Recognition: {_recognition_text(track)}",
-            f"YouTube: {_youtube_text(track)}",
-            "",
-            track.diagnostic_status or "No detailed diagnostics are available.",
+            f"Original filename: {track.path.name}",
+            f"Cleaned filename: {track.cleaned_filename}",
+            "Queries:",
+            *track.search_queries,
+            f"Resolver decision: {track.diagnostic_status}",
+            f"Confidence: {track.confidence}",
         ]
-        if proposed and proposed.confidence_breakdown:
-            lines.extend(["", "Evidence:", *proposed.confidence_breakdown])
-        QMessageBox.information(self, "Track Diagnostics", "\n".join(lines))
+        for candidate in track.candidates:
+            lines.extend(
+                [
+                    "",
+                    f"Candidate: {candidate.artist} - {candidate.title}",
+                    f"Score: {candidate.internal_score} ({candidate.confidence})",
+                    *candidate.evidence_breakdown,
+                ]
+            )
+        for result in track.search_results:
+            lines.extend(
+                [
+                    "",
+                    f"Result {result.rank}: {result.domain} (engines: {result.engine})",
+                    result.title,
+                    result.url,
+                    result.snippet,
+                ]
+            )
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Search Evidence")
+        dialog.resize(720, 500)
+        layout = QVBoxLayout(dialog)
+        details = QPlainTextEdit()
+        details.setReadOnly(True)
+        details.setPlainText("\n".join(lines))
+        layout.addWidget(details)
+        dialog.exec()
 
     @Slot()
-    def open_youtube_result(self) -> None:
+    def manual_search(self) -> None:
+        rows = self._selected_rows()
+        if not rows or self.processing_thread is not None:
+            return
+        keywords = self.search_keywords.text().strip()
+        if not keywords:
+            self._show_info("Enter search keywords first.")
+            return
+        row = rows[0]
+        self.tracks[row] = replace(self.tracks[row], manual_keywords=keywords)
+        self._start_processing([self.tracks[row]], [row])
+
+    @Slot()
+    def use_candidate(self) -> None:
         track = self._selected_track()
-        candidate = track.proposed.youtube_candidate if track and track.proposed else None
-        if candidate is None:
-            self._show_info("No YouTube result is available for the selected row.")
+        if track is None or not track.candidates or self.processing_thread is not None:
             return
-        webbrowser.open(candidate.video_url)
-
-    @Slot()
-    def select_youtube_candidate(self) -> None:
-        row = self._selected_rows()[0] if self._selected_rows() else None
-        if row is None:
-            self._show_info("Select a row first.")
-            return
-
-        track = self.tracks[row]
-        if track.proposed is None or not track.proposed.youtube_candidates:
-            self._show_info("No YouTube candidates are available for the selected row.")
-            return
-
-        labels = [
-            self._youtube_choice_label(index, candidate)
-            for index, candidate in enumerate(track.proposed.youtube_candidates, start=1)
+        choices = [
+            f"{i + 1}. {candidate.artist} - {candidate.title} ({candidate.confidence}; {len(candidate.evidence)} supporting results)"
+            for i, candidate in enumerate(track.candidates)
         ]
-        choice, accepted = QInputDialog.getItem(self, "Select YouTube Candidate", "Use this candidate:", labels, 0, False)
-        if not accepted or not choice:
-            return
-
-        candidate = track.proposed.youtube_candidates[labels.index(choice)]
-        proposed = replace(
-            track.proposed,
-            artist=candidate.inferred_artist or track.proposed.artist,
-            title=candidate.inferred_song_title or track.proposed.title,
-            duration=candidate.duration_seconds or track.proposed.duration,
-            filename=(
-                generate_mp3_filename(candidate.inferred_artist, candidate.inferred_song_title)
-                if candidate.inferred_artist and candidate.inferred_song_title
-                else track.proposed.filename
-            ),
-            youtube_candidate=candidate,
-            confidence_breakdown=(*track.proposed.confidence_breakdown, "YouTube candidate manually selected by user."),
+        choice, accepted = QInputDialog.getItem(
+            self,
+            "Use Candidate",
+            "Review sources, then select Artist + Title:",
+            choices,
+            0,
+            False,
         )
-        self.tracks[row] = replace(track, proposed=proposed, youtube_status="Matched", requires_review=False, processing_status="Ready")
-        self._refresh_table()
-        self.table.selectRow(row)
-        self._refresh_detail_panel()
-        self._set_status(f"Selected YouTube candidate for {track.path.name}.")
+        if accepted:
+            row = self._selected_rows()[0]
+            self._start_processing(
+                [track], [row], candidate_index=choices.index(choice)
+            )
 
     @Slot()
     def toggle_log(self) -> None:
@@ -549,11 +686,26 @@ class MainWindow(QMainWindow):
             proposed = track.proposed
             values = [
                 track.path.name,
-                _dash(proposed.artist if proposed else track.current_metadata.artist),
-                _dash(proposed.title if proposed else track.current_metadata.title),
+                _dash(
+                    proposed.artist
+                    if proposed
+                    else (
+                        None
+                        if track.processing_status == "Insufficient Information"
+                        else track.current_metadata.artist
+                    )
+                ),
+                _dash(
+                    proposed.title
+                    if proposed
+                    else (
+                        None
+                        if track.processing_status == "Insufficient Information"
+                        else track.current_metadata.title
+                    )
+                ),
                 self._confidence_text(track),
                 _lyrics_text(track),
-                _recognition_text(track),
                 _status_text(track),
             ]
             for column, value in enumerate(values):
@@ -563,7 +715,6 @@ class MainWindow(QMainWindow):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     item.setToolTip(self._confidence_tooltip(track))
                 self.table.setItem(row, column, item)
-        self.table.resizeColumnsToContents()
 
     def _refresh_detail_panel(self) -> None:
         rows = self._selected_rows()
@@ -584,14 +735,19 @@ class MainWindow(QMainWindow):
         self.proposed_title.setText(_dash(proposed.title if proposed else None))
         self.proposed_album.setText(_dash(proposed.album if proposed else None))
         self.proposed_year.setText(_dash(proposed.release_date if proposed else None))
-        self.recognition_source.setText(_recognition_summary(track))
+        self.search_query.setText("; ".join(track.search_queries) or "-")
         self.confidence_summary.setText(self._confidence_text(track))
-        self.youtube_summary.setText(_youtube_text(track))
+        self.sources_summary.setText(
+            str(len(track.resolved_identity.evidence) if track.resolved_identity else 0)
+        )
         self.lyrics_summary.setText(_lyrics_text(track))
-        youtube = proposed.youtube_candidate if proposed is not None else None
-        self.open_youtube_button.setEnabled(youtube is not None)
-        self.select_youtube_button.setEnabled(bool(proposed and proposed.youtube_candidates))
-        self.diagnostics_button.setEnabled(bool(track.diagnostic_status or (proposed and proposed.confidence_breakdown)))
+        self.use_candidate_button.setEnabled(
+            bool(track.candidates) and self.processing_thread is None
+        )
+        self.manual_search_button.setEnabled(self.processing_thread is None)
+        self.diagnostics_button.setEnabled(
+            bool(track.search_queries or track.diagnostic_status)
+        )
 
     def _set_detail_empty(self) -> None:
         for label in (
@@ -605,30 +761,32 @@ class MainWindow(QMainWindow):
             self.proposed_title,
             self.proposed_album,
             self.proposed_year,
-            self.recognition_source,
+            self.search_query,
             self.confidence_summary,
-            self.youtube_summary,
+            self.sources_summary,
             self.lyrics_summary,
         ):
             label.setText("-")
-        self.open_youtube_button.setEnabled(False)
-        self.select_youtube_button.setEnabled(False)
+        self.use_candidate_button.setEnabled(False)
+        self.manual_search_button.setEnabled(False)
         self.diagnostics_button.setEnabled(False)
 
     def _selected_rows(self) -> list[int]:
-        return sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+        return sorted(
+            {index.row() for index in self.table.selectionModel().selectedRows()}
+        )
 
     def _selected_track(self) -> WorkflowTrack | None:
         rows = self._selected_rows()
         return self.tracks[rows[0]] if rows else None
 
     def _confidence_text(self, track: WorkflowTrack) -> str:
-        return f"{track.confidence_score}%" if track.proposed is not None else "-"
+        return track.confidence
 
     def _confidence_tooltip(self, track: WorkflowTrack) -> str:
-        if track.confidence_score >= 90 and not track.requires_review:
-            return "High confidence; eligible for automatic apply."
-        if track.confidence_score >= 70:
+        if track.confidence_score >= 80 and not track.requires_review:
+            return "High confidence; eligible for confirmed batch apply."
+        if track.confidence_score >= 60:
             return "Review recommended."
         return "Low confidence; automatic apply disabled."
 
@@ -644,13 +802,12 @@ class MainWindow(QMainWindow):
 
     def _reload_workflow_service(self) -> None:
         if self.workflow_service_factory is not None:
+            previous = self.workflow_service
             self.workflow_service = self.workflow_service_factory()
+            previous.close()
 
     def _show_info(self, message: str) -> None:
         QMessageBox.information(self, "Music Metadata Cleaner", message)
-
-    def _youtube_choice_label(self, index: int, candidate) -> str:
-        return f"{index}. {candidate.title} | {candidate.channel_name or '-'} | {_format_duration(candidate.duration_seconds)} | {candidate.score}%"
 
     def _clear_applied_high_confidence_paths(self) -> None:
         self.applied_high_confidence_paths.clear()
@@ -659,10 +816,17 @@ class MainWindow(QMainWindow):
     def _sync_applied_high_confidence_paths(self) -> None:
         current_paths = {track.path.resolve() for track in self.tracks}
         self.applied_high_confidence_paths.intersection_update(current_paths)
-        self.remove_high_confidence_button.setEnabled(bool(self.applied_high_confidence_paths))
+        self.remove_high_confidence_button.setEnabled(
+            bool(self.applied_high_confidence_paths)
+        )
 
     def closeEvent(self, event) -> None:
-        self.cancel_processing()
+        if self.processing_thread is not None:
+            self.cancel_processing()
+            self._set_status("Waiting for the current search to finish before closing.")
+            event.ignore()
+            return
+        self.workflow_service.close()
         super().closeEvent(event)
 
 
@@ -684,63 +848,11 @@ def _format_duration(seconds: int | None) -> str:
 
 
 def _lyrics_text(track: WorkflowTrack) -> str:
-    proposed = track.proposed
-    lyrics = proposed.lyrics if proposed is not None else None
-    if lyrics is not None and lyrics.has_synced_lyrics:
-        return "Synced"
-    if lyrics is not None and lyrics.has_plain_lyrics:
-        return "Plain"
-    if track.lyrics_status in {"Existing", "Found", "Review", "Missing"}:
-        return track.lyrics_status
-    return "Missing" if track.proposed is not None else "-"
-
-
-def _recognition_text(track: WorkflowTrack) -> str:
-    status = track.recognition_status
-    if status.startswith("AudD fallback"):
-        return "AudD"
-    if status == "AcoustID + AudD":
-        return "AcoustID + AudD"
-    if status == "AcoustID":
-        return "AcoustID"
-    if "not configured" in status or "disabled" in status:
-        return "-"
-    if status.startswith("AudD:"):
-        return "AudD"
-    return status if status not in {"Not checked", ""} else "-"
-
-
-def _recognition_summary(track: WorkflowTrack) -> str:
-    source = _recognition_text(track)
-    if source == "AudD" and track.proposed and track.proposed.musicbrainz_recording_id:
-        return "AudD + MusicBrainz"
-    if source == "AcoustID" and track.proposed and track.proposed.musicbrainz_recording_id:
-        return "AcoustID + MusicBrainz"
-    return source
-
-
-def _youtube_text(track: WorkflowTrack) -> str:
-    if track.youtube_status == "Matched":
-        return "Verified"
-    if track.youtube_status in {"Not checked", "Not configured"}:
-        return "-"
-    if track.youtube_status == "Candidates rejected":
-        return "Review"
-    return track.youtube_status
+    return track.lyrics_status
 
 
 def _status_text(track: WorkflowTrack) -> str:
-    if track.processing_status == "Invalid MP3" or track.metadata_status == "Failed":
-        return "Failed"
-    if track.processing_status == "Processing":
-        return "Processing"
-    if track.requires_review:
-        return "Review"
-    if track.processing_status == "Ready":
-        return "Ready"
-    if track.proposed is not None and track.confidence_score >= 90:
-        return "Ready"
-    return "Review" if track.proposed is not None else "Pending"
+    return track.processing_status
 
 
 def run_desktop_app(
@@ -749,6 +861,8 @@ def run_desktop_app(
     workflow_service_factory: Callable[[], MusicCleanerWorkflowService] | None = None,
 ) -> int:
     app = QApplication.instance() or QApplication([])
-    window = MainWindow(workflow_service, workflow_service_factory=workflow_service_factory)
+    window = MainWindow(
+        workflow_service, workflow_service_factory=workflow_service_factory
+    )
     window.show()
     return app.exec()

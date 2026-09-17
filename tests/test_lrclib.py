@@ -4,9 +4,16 @@ import httpx
 import pytest
 
 from music_metadata_cleaner.domain.models import Lyrics, LyricsLookup, LyricsResult
-from music_metadata_cleaner.app.lyrics_service import LyricsService, build_lrc_export_filename
-from music_metadata_cleaner.providers.errors import ProviderNetworkError, ProviderRateLimitError, ProviderTimeoutError
-from music_metadata_cleaner.providers.lrclib import LRCLIBClient, normalize_lrclib_lyrics
+from music_metadata_cleaner.app.lyrics_service import LyricsService
+from music_metadata_cleaner.providers.errors import (
+    ProviderNetworkError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+)
+from music_metadata_cleaner.providers.lrclib import (
+    LRCLIBClient,
+    normalize_lrclib_lyrics,
+)
 
 
 def _lyrics_payload(**overrides):
@@ -27,22 +34,26 @@ def _lyrics_payload(**overrides):
 def test_normalize_lrclib_lyrics_marks_exact_match_as_online_without_review():
     result = normalize_lrclib_lyrics(
         _lyrics_payload(),
-        LyricsLookup(artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255),
+        LyricsLookup(
+            artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255
+        ),
     )
 
     assert result.source == "online"
     assert result.plain_lyrics == "plain lyrics"
-    assert result.synced_lyrics == "[00:01.00] plain lyrics"
+    assert result.synced_lyrics is None
     assert result.lrclib_id == 3396226
     assert result.confidence == 1.0
     assert result.requires_review is False
-    assert result.can_export_lrc is True
+    assert result.can_export_lrc is False
 
 
 def test_normalize_lrclib_lyrics_requires_review_for_uncertain_duration():
     result = normalize_lrclib_lyrics(
         _lyrics_payload(duration=260),
-        LyricsLookup(artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255),
+        LyricsLookup(
+            artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255
+        ),
     )
 
     assert result.requires_review is True
@@ -53,7 +64,9 @@ def test_normalize_lrclib_lyrics_requires_review_for_uncertain_duration():
 def test_normalize_lrclib_lyrics_requires_review_for_identity_mismatch():
     result = normalize_lrclib_lyrics(
         _lyrics_payload(artistName="Other Artist", trackName="Other Title"),
-        LyricsLookup(artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255),
+        LyricsLookup(
+            artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255
+        ),
     )
 
     assert result.requires_review is True
@@ -79,7 +92,11 @@ def test_lrclib_client_sends_signature_request_with_user_agent_and_duration():
         user_agent="TestApp/1.0 (test@example.com)",
     )
 
-    result = client.get_lyrics(LyricsLookup(artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255))
+    result = client.get_lyrics(
+        LyricsLookup(
+            artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255
+        )
+    )
 
     assert result is not None
     assert result.source == "online"
@@ -88,7 +105,9 @@ def test_lrclib_client_sends_signature_request_with_user_agent_and_duration():
 
 def test_lrclib_client_returns_none_for_not_found():
     client = LRCLIBClient(
-        http_client=httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(404))),
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(404))
+        ),
         user_agent="TestApp/1.0 (test@example.com)",
     )
 
@@ -106,7 +125,9 @@ def test_lrclib_client_caches_duplicate_lookup():
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
         user_agent="TestApp/1.0 (test@example.com)",
     )
-    lookup = LyricsLookup(artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255)
+    lookup = LyricsLookup(
+        artist="米津玄師", title="Lemon", album="STRAY SHEEP", duration=255
+    )
 
     first = client.get_lyrics(lookup)
     second = client.get_lyrics(lookup)
@@ -127,7 +148,11 @@ def test_lrclib_client_rate_limits_uncached_requests():
         now["value"] += seconds
 
     client = LRCLIBClient(
-        http_client=httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_lyrics_payload()))),
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json=_lyrics_payload())
+            )
+        ),
         user_agent="TestApp/1.0 (test@example.com)",
         min_request_interval_seconds=0.25,
         monotonic=monotonic,
@@ -144,7 +169,9 @@ def test_lrclib_client_rate_limits_uncached_requests():
 def test_lrclib_client_reports_rate_limit():
     client = LRCLIBClient(
         http_client=httpx.Client(
-            transport=httpx.MockTransport(lambda request: httpx.Response(429, headers={"Retry-After": "4"}))
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(429, headers={"Retry-After": "4"})
+            )
         ),
         user_agent="TestApp/1.0 (test@example.com)",
     )
@@ -181,7 +208,9 @@ def test_lrclib_client_reports_network_error():
 
 class FailingProvider:
     def get_lyrics(self, lookup: LyricsLookup) -> LyricsResult | None:
-        raise AssertionError("Provider should not be called when existing lyrics are present.")
+        raise AssertionError(
+            "Provider should not be called when existing lyrics are present."
+        )
 
 
 def test_lyrics_service_marks_existing_lyrics_and_does_not_query_online_provider():
@@ -194,7 +223,3 @@ def test_lyrics_service_marks_existing_lyrics_and_does_not_query_online_provider
     assert result.source == "existing"
     assert result.plain_lyrics == "already here"
     assert result.requires_review is False
-
-
-def test_build_lrc_export_filename_uses_artist_title_convention():
-    assert build_lrc_export_filename("米津玄師", "Lemon") == "米津玄師 - Lemon.lrc"

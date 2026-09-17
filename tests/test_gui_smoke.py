@@ -1,203 +1,199 @@
-from __future__ import annotations
+"""Offscreen GUI regression coverage; all search operations are mocked."""
 
 import os
+import time
 from pathlib import Path
-
 import pytest
-
-from music_metadata_cleaner.app.workflow_service import ApplyResult, MusicCleanerWorkflowService, WorkflowTrack
-from music_metadata_cleaner.config import AppConfig, load_config, save_config
-from music_metadata_cleaner.domain.models import ProposedTrackChanges, TrackMetadata, YouTubeCandidate
+from music_metadata_cleaner.app.workflow_service import (
+    MusicCleanerWorkflowService,
+    WorkflowTrack,
+)
+from music_metadata_cleaner.domain.models import TrackMetadata
+from music_metadata_cleaner.config import AppConfig, load_config
+from music_metadata_cleaner.domain.search import SearchResult
 
 if os.environ.get("RUN_QT_GUI_TESTS") != "1":
-    pytest.skip("Set RUN_QT_GUI_TESTS=1 to run PySide6 GUI smoke tests.", allow_module_level=True)
-
+    pytest.skip(
+        "Set RUN_QT_GUI_TESTS=1 for offscreen PySide6 tests.", allow_module_level=True
+    )
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
-MainWindow = pytest.importorskip("music_metadata_cleaner.ui.main_window", exc_type=ImportError).MainWindow
-SettingsDialog = pytest.importorskip("music_metadata_cleaner.ui.settings_dialog", exc_type=ImportError).SettingsDialog
-QApplication = QtWidgets.QApplication
-QMessageBox = QtWidgets.QMessageBox
+from music_metadata_cleaner.ui.main_window import MainWindow
+from music_metadata_cleaner.ui.settings_dialog import SettingsDialog
 
 
-class FakeApplyWorkflowService(MusicCleanerWorkflowService):
-    def __init__(self):
-        super().__init__()
-        self.applied = []
-        self.undo_called = False
-
-    def apply_tracks(self, tracks, settings):
-        self.applied.append((tracks, settings))
-        return [ApplyResult(track.path, True, "Applied selected changes.") for track in tracks]
-
-    def undo_last_batch(self):
-        self.undo_called = True
-        return [ApplyResult(Path("song.mp3"), True, "Restored.")]
+@pytest.fixture(scope="module")
+def app():
+    return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
 
-def test_main_window_smoke_instantiates_clean_core_widgets():
-    app = QApplication.instance() or QApplication([])
+class Search:
+    def search(self, query, count=8):
+        return [
+            SearchResult("Ado - 唱", "https://youtube.com/1"),
+            SearchResult("唱 by Ado", "https://spotify.com/1"),
+            SearchResult("Ado - 唱 Lyrics | Genius", "https://genius.com/1"),
+        ]
+
+
+def wait_for(app, predicate):
+    deadline = time.monotonic() + 5
+    while not predicate() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    assert predicate()
+
+
+def test_main_window_has_six_columns_and_no_obsolete_controls(app):
     window = MainWindow(MusicCleanerWorkflowService())
-
-    assert window.windowTitle() == "Music Metadata Cleaner"
-    assert window.table.columnCount() == 7
-    assert [window.table.horizontalHeaderItem(i).text() for i in range(7)] == [
-        "File",
-        "Artist",
-        "Title",
-        "Confidence",
-        "Lyrics",
+    assert [
+        window.table.horizontalHeaderItem(i).text()
+        for i in range(window.table.columnCount())
+    ] == ["File", "Artist", "Title", "Confidence", "Lyrics", "Status"]
+    assert window.manual_search_button.text() == "Search"
+    assert window.diagnostics_button.text() == "View Search Evidence"
+    labels = " ".join(w.text() for w in window.findChildren(QtWidgets.QLabel))
+    buttons = " ".join(w.text() for w in window.findChildren(QtWidgets.QPushButton))
+    for obsolete in [
+        "AudD",
+        "AcoustID",
+        "MusicBrainz",
+        "YouTube",
+        "Synced",
+        "LRC",
         "Recognition",
-        "Status",
-    ]
-    assert window.scan_button.text() == "Scan"
-    assert window.settings_button.text() == "Settings"
-    assert window.remove_high_confidence_button.text() == "Remove All High Confidence"
-    assert window.remove_high_confidence_button.isEnabled() is False
-    assert not hasattr(window, "add_cover_checkbox")
-    assert not hasattr(window, "proposed_cover")
-    assert app is not None
+    ]:
+        assert obsolete not in labels + buttons
+    window.close()
 
 
-def test_main_window_displays_simplified_track_preview(tmp_path):
-    app = QApplication.instance() or QApplication([])
-    mp3_path = tmp_path / "messy.mp3"
-    mp3_path.write_bytes(b"")
-    window = MainWindow(MusicCleanerWorkflowService())
-    window.tracks = [
-        WorkflowTrack(
-            path=mp3_path,
-            current_metadata=TrackMetadata(artist="Old Artist", title="Old Title", album="Old Album"),
-            proposed=ProposedTrackChanges(
-                artist="米津玄師",
-                title="Lemon",
-                album="STRAY SHEEP",
-                release_date="2020-08-05",
-                filename="米津玄師 - Lemon.mp3",
-                youtube_candidate=YouTubeCandidate(
-                    video_id="youtube-id",
-                    video_url="https://www.youtube.com/watch?v=youtube-id",
-                    title="米津玄師 - Lemon",
-                    channel_name="Kenshi Yonezu 米津玄師",
-                    duration_seconds=255,
-                    score=92,
-                ),
-                musicbrainz_recording_id="recording-id",
-            ),
-            confidence_score=98,
-            metadata_status="Found",
-            lyrics_status="Found",
-            recognition_status="AudD fallback (3/3)",
-            diagnostic_status="AcoustID: no match | AudD: 3/3 | YouTube: matched",
-            youtube_status="Matched",
-            processing_status="Ready",
-        )
-    ]
-
+def test_manual_search_uses_background_worker_and_displays_preview(app):
+    window = MainWindow(
+        MusicCleanerWorkflowService(search_provider=Search(), retrieve_lyrics=False)
+    )
+    window.tracks = [WorkflowTrack(Path("track001.mp3"), TrackMetadata())]
     window._refresh_table()
     window.table.selectRow(0)
-    window._refresh_detail_panel()
-
-    assert window.table.item(0, 1).text() == "米津玄師"
-    assert window.table.item(0, 3).text() == "98%"
-    assert window.table.item(0, 5).text() == "AudD"
-    assert window.table.item(0, 6).text() == "Ready"
-    assert window.proposed_filename.text() == "米津玄師 - Lemon.mp3"
-    assert window.recognition_source.text() == "AudD + MusicBrainz"
-    assert window.youtube_summary.text() == "Verified"
-    assert window.open_youtube_button.isEnabled() is True
-    assert window.diagnostics_button.isEnabled() is True
-    assert app is not None
+    window.search_keywords.setText("Ado 唱")
+    window.manual_search()
+    assert not window.apply_selected_button.isEnabled()
+    wait_for(app, lambda: window.processing_thread is None)
+    assert window.tracks[0].proposed.artist == "Ado"
+    assert window.table.item(0, 3).text() == "High"
+    assert window.proposed_filename.text() == "Ado - 唱.mp3"
+    assert window.diagnostics_button.isEnabled()
+    window.close()
 
 
-def test_apply_selected_apply_all_and_undo_still_work(tmp_path, monkeypatch):
-    app = QApplication.instance() or QApplication([])
-    high_path = tmp_path / "high.mp3"
-    low_path = tmp_path / "low.mp3"
-    high_path.write_bytes(b"")
-    low_path.write_bytes(b"")
-    service = FakeApplyWorkflowService()
+def test_insufficient_information_shows_low_and_no_identity(app):
+    service = MusicCleanerWorkflowService()
     window = MainWindow(service)
     window.tracks = [
-        _workflow_track(high_path, confidence_score=98, requires_review=False),
-        _workflow_track(low_path, confidence_score=82, requires_review=True),
+        service.process_track(WorkflowTrack(Path("track001.mp3"), TrackMetadata()))
     ]
-    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
-
     window._refresh_table()
     window.table.selectRow(0)
-    window.apply_selected()
-    window.apply_all_high_confidence()
-    assert window.remove_high_confidence_button.isEnabled() is True
-    window.remove_applied_high_confidence()
-    assert window.remove_high_confidence_button.isEnabled() is False
-    assert len(window.tracks) == 1
-    window.undo_last_batch()
-
-    assert len(service.applied) == 2
-    assert service.undo_called is True
-    assert app is not None
+    assert window.table.item(0, 1).text() == "-"
+    assert window.table.item(0, 3).text() == "Low"
+    assert window.table.item(0, 5).text() == "Insufficient Information"
+    window.close()
 
 
-def test_settings_dialog_loads_and_persists_values_without_revealing_secrets(tmp_path):
-    app = QApplication.instance() or QApplication([])
-    config_path = tmp_path / "preferences.json"
-    save_config(
-        config_path,
-        AppConfig(
-            audd_api_token="secret-audd",
-            youtube_api_key="secret-youtube",
-            ffmpeg_path="C:\\Tools\\ffmpeg\\bin\\ffmpeg.exe",
-            fallback_recognition_enabled=True,
-            multi_segment_recognition_enabled=True,
-            max_recognition_segments=3,
-            fallback_recognition_threshold=70,
-        ),
-    )
-    dialog = SettingsDialog(
-        config=load_config(config_path),
-        config_path=config_path,
-        workflow_service=MusicCleanerWorkflowService(),
-    )
-
-    assert dialog.audd_status.text() == "Configured"
-    assert dialog.youtube_status.text() == "Configured"
-    assert dialog.audd_token_input.text() == ""
-    assert dialog.youtube_key_input.text() == ""
-
-    dialog.enable_audd_checkbox.setChecked(False)
-    dialog.multi_segment_checkbox.setChecked(False)
-    dialog.max_segments_spin.setValue(1)
-    dialog.fallback_threshold_spin.setValue(65)
-    dialog.ffmpeg_input.setText("D:\\ffmpeg\\bin\\ffmpeg.exe")
-    dialog.rename_file_checkbox.setChecked(True)
+def test_settings_roundtrip_has_no_keys_or_recognition_controls(app, tmp_path):
+    path = tmp_path / "preferences.json"
+    dialog = SettingsDialog(AppConfig(), path)
+    assert [dialog.tabs.tabText(i) for i in range(dialog.tabs.count())] == [
+        "General",
+        "Search",
+        "Lyrics",
+        "Files & Safety",
+        "Advanced",
+    ]
+    assert dialog.preserve_lyrics_checkbox.isChecked()
+    assert not dialog.overwrite_lyrics_checkbox.isEnabled()
+    dialog.searxng_url_edit.setText("http://search.example:8080")
+    dialog.maximum_results_spin.setValue(9)
+    dialog.timeout_spin.setValue(12)
     dialog.save()
-    loaded = load_config(config_path)
-
-    assert loaded.audd_api_token == "secret-audd"
-    assert loaded.youtube_api_key == "secret-youtube"
-    assert loaded.fallback_recognition_enabled is False
-    assert loaded.multi_segment_recognition_enabled is False
-    assert loaded.max_recognition_segments == 1
-    assert loaded.fallback_recognition_threshold == 65
-    assert loaded.ffmpeg_path == "D:\\ffmpeg\\bin\\ffmpeg.exe"
-    assert loaded.default_rename_file is True
-    assert app is not None
+    config = load_config(path)
+    assert config.searxng_url == "http://search.example:8080"
+    assert config.maximum_search_results == 9
+    assert config.search_timeout_seconds == 12
+    assert config.preserve_existing_lyrics
+    assert "api_key" not in path.read_text()
 
 
-def _workflow_track(path, *, confidence_score, requires_review):
-    return WorkflowTrack(
-        path=path,
-        current_metadata=TrackMetadata(),
-        proposed=ProposedTrackChanges(
-            artist="Artist",
-            title=path.stem,
-            album="Album",
-            filename=f"Artist - {path.stem}.mp3",
-        ),
-        confidence_score=confidence_score,
-        metadata_status="Found",
-        lyrics_status="Found",
-        recognition_status="AcoustID",
-        processing_status="Ready",
-        requires_review=requires_review,
+def test_connection_button_runs_off_main_thread(app, tmp_path, monkeypatch):
+    from music_metadata_cleaner.ui import settings_dialog
+
+    monkeypatch.setattr(settings_dialog, "test_search_connection", lambda *args: "PASS")
+    dialog = SettingsDialog(
+        AppConfig(searxng_url="http://search.example"), tmp_path / "prefs.json"
     )
+    dialog._test_connection()
+    wait_for(app, lambda: dialog.test_worker is None)
+    assert dialog.connection_status.text() == "PASS"
+    dialog.close()
+
+
+def test_candidate_selection_is_user_confirmed(app, monkeypatch):
+    class WeakSearch(Search):
+        def search(self, query, count=8):
+            return super().search(query, count)[:1]
+
+    service = MusicCleanerWorkflowService(
+        search_provider=WeakSearch(), retrieve_lyrics=False
+    )
+    track = service.manual_search(
+        WorkflowTrack(Path("track001.mp3"), TrackMetadata()), "Ado 唱"
+    )
+    assert track.requires_review
+    window = MainWindow(service)
+    window.tracks = [track]
+    window._refresh_table()
+    window.table.selectRow(0)
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog, "getItem", lambda *args: (args[3][0], True)
+    )
+    window.use_candidate()
+    wait_for(app, lambda: window.processing_thread is None)
+    assert window.tracks[0].manually_reviewed
+    assert not window.tracks[0].requires_review
+    window.close()
+
+
+def test_apply_and_undo_update_displayed_paths(app, tmp_path, monkeypatch):
+    from mutagen.id3 import ID3, TIT2, TPE1
+    from music_metadata_cleaner.db.connection import connect_database
+    from music_metadata_cleaner.db.schema import initialize_schema
+    from music_metadata_cleaner.db.history import HistoryRepository
+
+    path = tmp_path / "Ado 唱.mp3"
+    path.write_bytes(b"")
+    tags = ID3()
+    tags.add(TIT2(encoding=3, text="唱"))
+    tags.add(TPE1(encoding=3, text="Ado"))
+    tags.save(path)
+    conn = connect_database(tmp_path / "history.sqlite3")
+    initialize_schema(conn)
+    service = MusicCleanerWorkflowService(
+        search_provider=Search(),
+        retrieve_lyrics=False,
+        history_repository=HistoryRepository(conn),
+    )
+    window = MainWindow(service)
+    window.tracks = [service.process_track(service.discover([path])[0])]
+    window._refresh_table()
+    window.table.selectRow(0)
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "question",
+        lambda *args: QtWidgets.QMessageBox.StandardButton.Yes,
+    )
+    window.apply_all_high_confidence()
+    assert window.tracks[0].path.name == "Ado - 唱.mp3"
+    assert window.tracks[0].proposed is None
+    assert window.remove_high_confidence_button.isEnabled()
+    window.undo_last_batch()
+    assert path.exists()
+    assert window.tracks[0].path == path
+    window.close()
