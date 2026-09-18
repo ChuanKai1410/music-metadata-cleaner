@@ -11,7 +11,7 @@ a = Analysis(
     [str(src_root / "music_metadata_cleaner" / "__main__.py")],
     pathex=[str(src_root)],
     binaries=[],
-    datas=[],
+    datas=[(str(src_root / "music_metadata_cleaner" / "ui" / "styles"), "music_metadata_cleaner/ui/styles")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

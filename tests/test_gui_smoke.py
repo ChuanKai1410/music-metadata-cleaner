@@ -105,7 +105,7 @@ def test_settings_roundtrip_has_no_keys_or_recognition_controls(app, tmp_path):
         "General",
         "Search",
         "Lyrics",
-        "Files & Safety",
+        "Files && Safety",
         "Advanced",
     ]
     assert dialog.preserve_lyrics_checkbox.isChecked()
@@ -161,7 +161,8 @@ def test_candidate_selection_is_user_confirmed(app, monkeypatch):
     window.close()
 
 
-def test_apply_and_undo_update_displayed_paths(app, tmp_path, monkeypatch):
+@pytest.mark.parametrize("action", ["apply_all_high_confidence", "apply_selected"])
+def test_apply_and_undo_update_displayed_paths(app, tmp_path, monkeypatch, action):
     from mutagen.id3 import ID3, TIT2, TPE1
     from music_metadata_cleaner.db.connection import connect_database
     from music_metadata_cleaner.db.schema import initialize_schema
@@ -189,10 +190,12 @@ def test_apply_and_undo_update_displayed_paths(app, tmp_path, monkeypatch):
         "question",
         lambda *args: QtWidgets.QMessageBox.StandardButton.Yes,
     )
-    window.apply_all_high_confidence()
+    getattr(window, action)()
     assert window.tracks[0].path.name == "Ado - 唱.mp3"
     assert window.tracks[0].proposed is None
-    assert window.remove_high_confidence_button.isEnabled()
+    assert window.remove_high_confidence_button.isEnabled() == (
+        action == "apply_all_high_confidence"
+    )
     window.undo_last_batch()
     assert path.exists()
     assert window.tracks[0].path == path
@@ -248,4 +251,160 @@ def test_manual_edit_button_handles_no_search_results(app, monkeypatch):
     window.edit_metadata()
     assert window.tracks[0].proposed.filename == "Ado - 唱.mp3"
     assert window.table.item(0, 3).text() == "Manual confirmed"
+    window.close()
+
+
+def test_shared_theme_and_distinct_actions(app, tmp_path):
+    from music_metadata_cleaner.ui.manual_edit_dialog import ManualEditDialog
+    from music_metadata_cleaner.ui.text_dialog import TextDialog
+
+    window = MainWindow(MusicCleanerWorkflowService())
+    assert app.property("musicCleanerTheme")
+    assert "QPushButton" in app.styleSheet()
+    assert "@background@" not in app.styleSheet()
+    assert not window.findChildren(QtWidgets.QGroupBox)
+    assert not hasattr(window, "preview_button")
+    assert window.scan_button.text() == "Scan && Preview"
+    assert window.apply_selected_button.property("role") == "primary"
+    assert window.message_box.isHidden()
+    assert window.progress_bar.isHidden()
+    assert window.cancel_button.isHidden()
+    labels = [b.text() for b in window.findChildren(QtWidgets.QPushButton)]
+    assert len(labels) == len(set(labels))
+    assert "Preview Changes" not in labels
+    dialogs = [
+        SettingsDialog(AppConfig(), tmp_path / "prefs.json"),
+        ManualEditDialog(WorkflowTrack(Path("Artist - Song.mp3"), TrackMetadata())),
+        TextDialog("Search Evidence", "Query\nSupporting sources"),
+        TextDialog("Recent Operations", "One operation"),
+    ]
+    for dialog in dialogs:
+        dialog.show()
+        app.processEvents()
+        assert dialog.palette().window().color().name() == "#202326"
+        assert all(
+            not widget.styleSheet() for widget in dialog.findChildren(QtWidgets.QWidget)
+        )
+        dialog.reject()
+    window.close()
+
+
+@pytest.mark.parametrize("size", [(1280, 720), (1920, 1080)])
+def test_resize_and_selected_track_comparison(app, size):
+    from PySide6.QtCore import QPoint
+
+    service = MusicCleanerWorkflowService()
+    window = MainWindow(service)
+    track = WorkflowTrack(Path("Artist - Song Official Video.mp3"), TrackMetadata())
+    window.tracks = [service.manual_edit(track, artist="Artist", title="Song")]
+    window._refresh_table()
+    window.table.selectRow(0)
+    window.resize(*size)
+    window.show()
+    app.processEvents()
+    assert (window.width(), window.height()) == size
+    assert window.table.horizontalScrollBar().maximum() == 0
+    assert window.proposed_artist.text() == "Artist"
+    assert window.proposed_artist.property("role") == "changed"
+    # The search entry remains reachable at the smallest reviewed size.
+    point = window.manual_search_button.mapTo(
+        window.detail_scroll.viewport(), QPoint(0, 0)
+    )
+    assert window.detail_scroll.viewport().rect().contains(point)
+    window.table.clearSelection()
+    assert window.proposed_artist.text() == "-"
+    assert window.proposed_artist.property("role") != "changed"
+    window.close()
+
+
+def test_add_files_folder_remove_clear_and_single_scan_entry(
+    app, tmp_path, monkeypatch
+):
+    from mutagen.id3 import ID3, TIT2, TPE1
+    from music_metadata_cleaner.ui import main_window
+
+    monkeypatch.setattr(main_window, "CONFIG_PATH", tmp_path / "preferences.json")
+
+    folder = tmp_path / "music"
+    folder.mkdir()
+    paths = [folder / "Ado 唱.mp3", tmp_path / "other.mp3"]
+    for path in paths:
+        tags = ID3()
+        tags.add(TIT2(encoding=3, text="唱"))
+        tags.add(TPE1(encoding=3, text="Ado"))
+        tags.save(path)
+    original = {path: path.read_bytes() for path in paths}
+    window = MainWindow(
+        MusicCleanerWorkflowService(search_provider=Search(), retrieve_lyrics=False)
+    )
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileNames", lambda *a: ([str(paths[1])], "")
+    )
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getExistingDirectory", lambda *a: str(folder)
+    )
+    window.add_files_button.click()
+    window.add_folder_button.click()
+    assert len(window.tracks) == 2
+    window.scan_button.click()
+    assert not window.scan_button.isEnabled()
+    wait_for(app, lambda: window.processing_thread is None)
+    assert all(track.proposed for track in window.tracks)
+    assert window.scan_button.isEnabled()
+    assert window.progress_bar.isHidden()
+    assert {path: path.read_bytes() for path in paths} == original
+    window.table.selectRow(0)
+    window.remove_files_button.click()
+    assert len(window.tracks) == 1
+    window.clear_files_button.click()
+    assert not window.tracks
+    assert all(path.exists() for path in paths)
+    window.close()
+
+
+def test_evidence_history_and_logs_remain_reachable(app, monkeypatch):
+    from types import SimpleNamespace
+    from music_metadata_cleaner.ui.text_dialog import TextDialog
+
+    service = MusicCleanerWorkflowService(
+        search_provider=Search(), retrieve_lyrics=False
+    )
+    window = MainWindow(service)
+    window.tracks = [
+        service.manual_search(
+            WorkflowTrack(Path("track001.mp3"), TrackMetadata()), "Ado 唱"
+        )
+    ]
+    window._refresh_table()
+    window.table.selectRow(0)
+    captured = []
+    monkeypatch.setattr(
+        TextDialog,
+        "exec",
+        lambda dialog: captured.append(
+            (dialog.windowTitle(), dialog.details.toPlainText())
+        ),
+    )
+    window.diagnostics_button.click()
+    assert captured[-1][0] == "Search Evidence"
+    assert "Candidate:" in captured[-1][1] and "Result 1:" in captured[-1][1]
+    monkeypatch.setattr(
+        service,
+        "list_operations",
+        lambda **kw: [
+            SimpleNamespace(
+                created_at="today",
+                status="applied",
+                original_filename="old.mp3",
+                new_filename="new.mp3",
+            )
+        ],
+    )
+    window.history_button.click()
+    assert captured[-1] == ("Recent Operations", "today | applied | old.mp3 -> new.mp3")
+    window.show()
+    window.show_log_button.click()
+    assert not window.message_box.isHidden()
+    window.show_log_button.click()
+    assert window.message_box.isHidden()
     window.close()

@@ -43,7 +43,7 @@ PYTHONPATH=src python -m music_metadata_cleaner
 ## Use
 
 1. Add MP3 files or a folder. Scanning reads tags without modifying files.
-2. Scan / Preview Changes searches at most two queries per track, stopping early on strong agreement.
+2. Scan & Preview searches at most two queries per track, stopping early on strong agreement.
 3. Inspect **View Search Evidence**. Confidence is **High**, **Medium**, or **Low**, not a probability.
 4. Use **Use Candidate** to confirm an ambiguous identity, or enter manual search keywords.
 5. Confirm **Apply Selected** or **Apply All High Confidence**. The target name is `{Artist} - {Title}.mp3`.

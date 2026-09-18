@@ -1,5 +1,7 @@
 """Local editable identity/lyrics preview; no network or filesystem mutations."""
 
+from music_metadata_cleaner.ui.theme import style_dialog, SPACE
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -33,6 +35,8 @@ class ManualEditDialog(QDialog):
             )
         )
         form = QFormLayout()
+        form.setSpacing(SPACE)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         layout.addLayout(form)
         options = manual_options(
             track.path.name, track.current_metadata, track.candidates, track.proposed
@@ -42,6 +46,11 @@ class ManualEditDialog(QDialog):
         self.artist_combo.addItems(options.artists)
         self.title_combo = QComboBox()
         self.title_combo.setEditable(True)
+        for combo in (self.artist_combo, self.title_combo):
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setMinimumContentsLength(16)
         self.title_combo.addItems(options.titles)
         self.artist_combo.setEditText(
             track.proposed.artist
@@ -93,6 +102,7 @@ class ManualEditDialog(QDialog):
         )
         layout.addWidget(self.overwrite_lyrics)
         self.error_label = QLabel()
+        self.error_label.setProperty("role", "error")
         layout.addWidget(self.error_label)
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
@@ -110,6 +120,7 @@ class ManualEditDialog(QDialog):
             )
         )
         self._preview()
+        style_dialog(self, layout, self.buttons)
 
     def _swap(self):
         artist, title = self.artist_combo.currentText(), self.title_combo.currentText()

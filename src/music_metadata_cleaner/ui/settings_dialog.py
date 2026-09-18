@@ -1,5 +1,7 @@
 """Preferences for text search, plain lyrics and local file safety."""
 
+from music_metadata_cleaner.ui.theme import style_dialog, SPACE, MARGIN
+
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -53,7 +55,7 @@ class SettingsDialog(QDialog):
         self.workflow_service = workflow_service
         self.test_worker = None
         self.setWindowTitle("Settings")
-        self.resize(580, 460)
+        self.resize(680, 480)
         root = QVBoxLayout(self)
         self.tabs = QTabWidget()
         root.addWidget(self.tabs)
@@ -62,6 +64,7 @@ class SettingsDialog(QDialog):
         folder = QWidget()
         row = QHBoxLayout(folder)
         row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(SPACE)
         row.addWidget(self.default_music_folder_edit)
         browse = QPushButton("Browse")
         browse.clicked.connect(self._browse_folder)
@@ -114,7 +117,7 @@ class SettingsDialog(QDialog):
         )
         self.preserve_lyrics_checkbox.toggled.connect(self._preserve_changed)
         self._preserve_changed(self.preserve_lyrics_checkbox.isChecked())
-        safety = self._tab("Files & Safety")
+        safety = self._tab("Files && Safety")
         self.rename_checkbox = self._check(
             safety, "Rename files", config.default_rename_file
         )
@@ -157,10 +160,14 @@ class SettingsDialog(QDialog):
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
         root.addWidget(self.buttons)
+        style_dialog(self, root, self.buttons)
 
     def _tab(self, title):
         widget = QWidget()
         form = QFormLayout(widget)
+        form.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        form.setSpacing(SPACE)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.tabs.addTab(widget, title)
         return form
