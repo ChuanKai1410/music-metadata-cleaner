@@ -6,6 +6,12 @@
 
 The composition root constructs SearXNGProvider, RuleBasedIdentityResolver and LyricsService(LRCLIBClient), together with the existing SQLite and file adapters. No recognition clients or audio executables are initialized.
 
+## Package and startup
+
+`pyproject.toml` defines the setuptools `src/` layout for distribution `music-metadata-cleaner` (`0.1.0`). Editable installation links the selected Python environment to this checkout; `python -m music_metadata_cleaner` invokes the existing `__main__.py` without a `PYTHONPATH` override. Application/development dependencies are still supplied by `requirements.txt`, not the minimal project metadata.
+
+The Windows build script uses the explicit music-cleaner interpreter and the existing PyInstaller spec. Its windowed one-directory bundle includes QSS/SVG assets separately from Python package discovery. User data and the external SearXNG service are not package resources. See [build and installation](BUILD.md).
+
 ## Search boundary
 
 SearXNGProvider implements SearchProvider.search(query, count). It sends GET `{base_url}/search?q=...&format=json`; maximum results limits the returned first page locally. It validates the results array, strips HTML markup, normalizes domain/engine/rank fields, and rejects malformed responses. Connection testing bypasses the cache and returns PASS, INVALID_ENDPOINT, SERVER_UNREACHABLE, JSON_FORMAT_DISABLED, TIMEOUT or INVALID_RESPONSE. HTML responses and HTTP 403 are diagnosed as JSON_FORMAT_DISABLED; access controls can also cause 403.

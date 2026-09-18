@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-project_root = Path.cwd()
+project_root = Path(SPECPATH).resolve().parent
 src_root = project_root / "src"
 icon_path = project_root / "assets" / "icons" / "app.ico"
 
@@ -49,14 +49,13 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="MusicMetadataCleaner",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -66,4 +65,14 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(icon_path) if icon_path.exists() else None,
+)
+
+# One-directory distribution (--onedir); console=False above is --windowed.
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="MusicMetadataCleaner",
 )

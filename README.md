@@ -26,26 +26,45 @@ flowchart LR
 
 ## 🚀 Quick start
 
-Requires **Python 3.10+**, compatible Qt libraries, and a **JSON-enabled SearXNG instance**. From the project folder:
+Requires **Python 3.10+**, compatible Qt libraries, and a **JSON-enabled SearXNG instance**. Install from the project root once per environment:
 
-```sh
-python -m pip install -r requirements.txt
-```
-
-**Windows · PowerShell**
+**Windows · PowerShell · existing music-cleaner environment**
 
 ```powershell
-$env:PYTHONPATH="$PWD\src"
-python -m music_metadata_cleaner
+$py = 'C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe'
+& $py -m pip install -r requirements.txt
+& $py -m pip install -e .
+& $py -m music_metadata_cleaner
 ```
 
-**Linux**
+**Linux · virtual environment**
 
 ```sh
-PYTHONPATH=src python -m music_metadata_cleaner
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e .
+.venv/bin/python -m music_metadata_cleaner
 ```
 
+`pyproject.toml` configures the `src/` package. Editable installation makes source edits available on the next launch—no `PYTHONPATH` or conda activation needed. Dependencies remain in `requirements.txt`.
+
 In **Settings → Search**, enter your SearXNG base URL, click **Test Connection**, then **Save**. No search API key is needed. Alternatively, set `SEARXNG_URL` in your environment or a `.env` file in the launch folder; it overrides the saved URL. See [setup and troubleshooting](docs/USER_GUIDE.md#connect-search).
+
+## 🪟 Windows Build
+
+From the project root, using the existing environment directly (no conda activation):
+
+```powershell
+# Development run (after editable installation)
+& 'C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe' -m music_metadata_cleaner
+
+# Rebuild the windowed executable
+.\build.ps1
+```
+
+Result: `dist\MusicMetadataCleaner\MusicMetadataCleaner.exe`. Distribute the **entire** `MusicMetadataCleaner` folder, including `_internal`.
+
+If script execution is blocked, use `Set-ExecutionPolicy -Scope Process Bypass` in that PowerShell session, then retry. The script never changes execution policy or installs dependencies. SearXNG remains an external service. [Build details →](docs/BUILD.md#windows-rebuild-script)
 
 ## 🧭 Everyday workflow
 

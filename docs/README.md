@@ -2,6 +2,8 @@
 
 Current product: a local-first MP3 metadata cleaner using SearXNG text search, deterministic identity rules, optional LRCLIB plain lyrics, and confirmed file changes.
 
+Development setup now uses `pyproject.toml` and `pip install -e .` after installing `requirements.txt`. Launch with the same interpreter using `-m music_metadata_cleaner`; no `PYTHONPATH` override is needed.
+
 ## Use and develop
 
 | Document | Read it for |
@@ -9,7 +11,7 @@ Current product: a local-first MP3 metadata cleaner using SearXNG text search, d
 | [Project README](../README.md) | Overview, screenshot, quick start, and tech stack |
 | [User guide](USER_GUIDE.md) | Current controls, settings, safety, and troubleshooting |
 | [Confidence & manual editing](CONFIDENCE_AND_MANUAL_EDIT.md) | Scoring rules and manual completion, explained in Chinese |
-| [Build & tests](BUILD.md) | Source setup, offscreen GUI checks, and packaging |
+| [Build & tests](BUILD.md) | Editable package installation, offscreen GUI checks, and Windows builds |
 | [Architecture](ARCHITECTURE.md) | Active modules, provider boundaries, UI theme, and file safety |
 | [Requirements](REQUIREMENTS.md) | Current product scope and constraints |
 | [Roadmap](ROADMAP.md) | Completed work and remaining validation |

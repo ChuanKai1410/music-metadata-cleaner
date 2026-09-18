@@ -29,7 +29,7 @@ samples/song2.mp3,,
 
 Relative paths resolve from the manifest folder. Include independently checked artist, title, and recording/version details. Leave expected fields blank when unknown. For comparison with the original run, explicitly list the same 15 files.
 
-Set `PYTHONPATH` to `src` as in the [build guide](BUILD.md), then run:
+Complete the editable installation in the [build guide](BUILD.md#source-environment), then run with that same interpreter (replace `python` below with its full path, or `& $py` in PowerShell). No `PYTHONPATH` setting is needed:
 
 ```sh
 python -m music_metadata_cleaner.app.search_benchmark --endpoint http://localhost:8080 --manifest samples.csv --output benchmark-results.csv

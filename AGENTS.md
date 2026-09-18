@@ -43,3 +43,7 @@ Historical recognition modules and their regression tests are retained but disco
 - Manual identity/lyrics edits stage a preview only. Changed identities display **Manual confirmed**; lyrics never affect identity confidence.
 - Keep README concise and point detailed instructions to `docs/USER_GUIDE.md`. `docs/README.md` indexes current and historical documentation.
 - Update user-facing labels and figures after UI changes. Preserve dated benchmark measurements; label historical provider documents clearly. Do not claim 99% accuracy or infer it from passing tests.
+
+## Python project setup
+
+`pyproject.toml` configures setuptools package discovery under `src/`. Install `requirements.txt` and then `pip install -e .` with the intended interpreter; launch with `python -m music_metadata_cleaner`, without requiring `PYTHONPATH` or conda activation. The minimal project metadata does not declare dependencies or wheel resource inclusion; PyInstaller style assets are configured separately in its spec.

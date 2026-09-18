@@ -2,6 +2,16 @@
 
 [Quick start](../README.md#-quick-start) · [Documentation index](README.md)
 
+## Start the application
+
+Follow the README's one-time dependency and editable installation steps. After that, launch directly in PowerShell:
+
+```powershell
+& 'C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe' -m music_metadata_cleaner
+```
+
+No conda activation or `PYTHONPATH` setting is needed. The explicit interpreter path controls the environment, even if the prompt says `(base)`. Launch from the project folder when using its `.env`. Rebuild the Windows executable with `./build.ps1` after source changes; editable installation does not update an existing EXE.
+
 ## Connect search
 
 1. Open **Settings → Search**.
@@ -111,6 +121,7 @@ New installations use `%LOCALAPPDATA%/MusicMetadataCleaner` on Windows. Linux us
 | INVALID_RESPONSE | Confirm the endpoint returns the expected SearXNG JSON structure. |
 | Search works, identity stays Review | Search results do not establish one supported identity. Use Candidate or manual editing. |
 | Apply/undo conflict | Inspect the message/log and resolve filename or backup collisions yourself; never rely on silent overwrite. |
+| `No module named music_metadata_cleaner` | From the project root, use the same interpreter to run `-m pip install -e .`; install `requirements.txt` for missing dependencies. |
 | Qt DLL/import error | Use a clean virtual environment with compatible PySide6 libraries; see [build guide](BUILD.md). |
 
 A High label is not a correctness guarantee. The recorded 15-song baseline and remaining parser limitations are documented in [Search benchmark](SEARCH_BENCHMARK.md).
