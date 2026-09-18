@@ -52,14 +52,14 @@ def test_apply_creates_history_before_modifying_metadata_and_undo_restores(tmp_p
     assert restored.artist == "Old Artist"
 
 
-def test_apply_rolls_back_when_lrc_export_would_overwrite(tmp_path):
+def test_apply_preserves_original_when_rename_would_overwrite(tmp_path):
     mp3_path = tmp_path / "song.mp3"
     mp3_path.write_bytes(b"")
     tags = ID3()
     tags.add(TIT2(encoding=3, text="Old Title"))
     tags.add(TPE1(encoding=3, text="Old Artist"))
     tags.save(mp3_path, v2_version=3)
-    (tmp_path / "New Artist - New Title.lrc").write_text("existing", encoding="utf-8")
+    (tmp_path / "New Artist - New Title.mp3").write_text("existing", encoding="utf-8")
 
     connection = connect_database(tmp_path / "history.sqlite3")
     initialize_schema(connection)
@@ -77,7 +77,7 @@ def test_apply_rolls_back_when_lrc_export_would_overwrite(tmp_path):
         confidence_score=98,
     )
 
-    results = service.apply_tracks([track], ApplySettings(rename_file=True, export_lrc=True))
+    results = service.apply_tracks([track], ApplySettings(rename_file=True))
 
     restored = read_id3_metadata(mp3_path)
     assert results[0].success is False

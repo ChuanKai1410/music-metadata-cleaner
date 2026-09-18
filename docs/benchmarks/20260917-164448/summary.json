@@ -1,0 +1,17 @@
+{
+  "total": 15,
+  "status_counts": {
+    "Review": 13,
+    "Lyrics Not Found": 2
+  },
+  "confidence_counts": {
+    "Low": 13,
+    "High": 2
+  },
+  "proposed_identities": 3,
+  "unverified": 15,
+  "elapsed_seconds": 40.7,
+  "all_files_unchanged": true,
+  "maximum_results": 8,
+  "timeout_seconds": 10
+}

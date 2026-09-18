@@ -1,184 +1,94 @@
-# Music Metadata Cleaner
+# 🎵 Music Metadata Cleaner
 
-Music Metadata Cleaner is a local-first Python desktop application for safely cleaning MP3 metadata.
+Clean MP3 artist/title tags and filenames with a local desktop app. Review every proposal before changing your files.
 
-It scans local MP3 files, reads existing ID3 tags, fingerprints audio with Chromaprint/`fpcalc`, identifies songs through AcoustID, can fall back to short-clip AudD audio recognition for weak/no matches, retrieves canonical metadata from MusicBrainz, retrieves lyrics from LRCLIB, previews changes, and applies updates only after user confirmation.
+![Music Metadata Cleaner — track list and selected-track preview](docs/images/main-window.png)
+*Current dark-theme UI with demonstration data. “Manual confirmed” means the identity was entered by a user.*
 
-## Features
+## ✨ What it does
 
-- MP3 discovery from files or folders.
-- ID3 read/write support through Mutagen.
-- Chromaprint fingerprinting through `fpcalc`.
-- AcoustID candidate identification.
-- AudD fallback recognition using temporary multi-segment audio clips.
-- MusicBrainz metadata enrichment.
-- LRCLIB plain and synced lyrics lookup.
-- YouTube Data API verification and fallback evidence for difficult YouTube-origin MP3s.
-- Desktop GUI with batch preview and apply controls.
-- SQLite operation history.
-- Undo Last Batch.
-- Optional backup before modification.
-- Duplicate detection helpers.
-- Provider request caching.
-- Application logging.
+- Finds **Artist + Title** using filenames, useful ID3 tags, and **SearXNG** search results.
+- Lets you inspect evidence, choose candidates, or edit artist/title using editable dropdowns.
+- Retrieves **plain lyrics** from LRCLIB, preserves existing lyrics by default, and accepts manual lyrics.
+- Updates ID3 and renames files to **`Artist - Title.mp3`**, with confirmation, backups, history, and undo.
 
-## Safety Model
+**Text search only:** the app cannot listen to songs. Unclear filenames need manual keywords or editing. Confidence is an evidence rating, not a guaranteed accuracy percentage.
 
-- Scanning is read-only.
-- Every change is previewed before application.
-- A history record is required before modifying files.
-- Existing lyrics are preserved by default.
-- Existing files are never silently overwritten.
-- Backup and rollback are used during apply.
-- Low-confidence changes require review.
+```mermaid
+flowchart LR
+    A[MP3 filename + ID3] --> B[SearXNG search]
+    B --> C[Artist + Title candidates]
+    C --> D[Review + optional plain lyrics]
+    D --> E[Confirm apply]
+    E --> F[Update tags + rename]
+    F --> G[History + Undo]
+```
 
-## Installation
+## 🚀 Quick start
 
-Recommended on this machine:
+Requires **Python 3.10+**, compatible Qt libraries, and a **JSON-enabled SearXNG instance**. Install from the project root once per environment:
+
+**Windows · PowerShell · existing music-cleaner environment**
 
 ```powershell
-cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
-& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m pip install -r requirements.txt
+$py = 'C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe'
+& $py -m pip install -r requirements.txt
+& $py -m pip install -e .
+& $py -m music_metadata_cleaner
 ```
 
-Generic install command, if your correct environment is already active:
+**Linux · virtual environment**
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e .
+.venv/bin/python -m music_metadata_cleaner
+```
+
+`pyproject.toml` configures the `src/` package. Editable installation makes source edits available on the next launch—no `PYTHONPATH` or conda activation needed. Dependencies remain in `requirements.txt`.
+
+In **Settings → Search**, enter your SearXNG base URL, click **Test Connection**, then **Save**. No search API key is needed. Alternatively, set `SEARXNG_URL` in your environment or a `.env` file in the launch folder; it overrides the saved URL. See [setup and troubleshooting](docs/USER_GUIDE.md#connect-search).
+
+## 🪟 Windows Build
+
+From the project root, using the existing environment directly (no conda activation):
 
 ```powershell
-cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
-python -m pip install -r requirements.txt
+# Development run (after editable installation)
+& 'C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe' -m music_metadata_cleaner
+
+# Rebuild the windowed executable
+.\build.ps1
 ```
 
-Install Chromaprint separately and either make `fpcalc.exe` available on `PATH`, or set `FPCALC_PATH` in `.env`.
+Result: `dist\MusicMetadataCleaner\MusicMetadataCleaner.exe`. Distribute the **entire** `MusicMetadataCleaner` folder, including `_internal`.
 
-AudD fallback recognition also requires `ffmpeg`. Make `ffmpeg.exe` available on `PATH`, or set `FFMPEG_PATH` in `.env`.
+If script execution is blocked, use `Set-ExecutionPolicy -Scope Process Bypass` in that PowerShell session, then retry. The script never changes execution policy or installs dependencies. SearXNG remains an external service. [Build details →](docs/BUILD.md#windows-rebuild-script)
 
-## API Configuration
+## 🧭 Everyday workflow
 
-Copy `.env.example` to `.env`, then fill in your values:
+1. **Add Files** or **Add Folder**.
+2. Click **Scan & Preview**. This does not modify MP3s.
+3. Select a row to compare **Current / Proposed** and **View Search Evidence**.
+4. If needed, use **Search keywords → Search**, **Use Candidate**, or **Edit Artist / Title / Lyrics → Save Preview**.
+5. Click **Apply Selected**, or **Apply All High Confidence**, then confirm.
+6. Use **History** to inspect changes and **Undo Last Batch** to restore supported tags and filenames.
 
-```powershell
-Copy-Item .env.example .env
-notepad .env
-```
+Missing lyrics do not block metadata cleanup. **Remove**, **Clear**, and **Remove Applied Rows** only remove list entries, not files. [Full user guide →](docs/USER_GUIDE.md)
 
-Minimum useful settings:
+## 🛠️ Tech stack
 
-```text
-ACOUSTID_API_KEY=your-acoustid-api-key
-YOUTUBE_API_KEY=your-youtube-data-api-key
-MUSIC_METADATA_CLEANER_USER_AGENT=MusicMetadataCleaner/0.1 (your-email@example.com)
-FPCALC_PATH=C:\Tools\chromaprint\fpcalc.exe
-```
+| Part | Technology |
+| --- | --- |
+| Desktop UI | Python, PySide6 / Qt, centralized QSS |
+| Search & identity | SearXNG JSON, httpx, deterministic rules |
+| Tags & lyrics | Mutagen ID3, LRCLIB plain lyrics |
+| History & cache | SQLite, pathlib |
+| Tests & packaging | pytest, PyInstaller |
 
-Optional audio-recognition fallback settings:
+MP3 audio stays local; search text goes to your configured SearXNG server, and lyrics lookups go to LRCLIB. No audio recognition, LLM resolution, paid search API, or synchronized-lyrics export is used.
 
-```text
-AUDD_API_TOKEN=your-audd-token
-MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED=true
-MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_THRESHOLD=70
-MUSIC_METADATA_CLEANER_MULTI_SEGMENT_RECOGNITION_ENABLED=true
-MUSIC_METADATA_CLEANER_MAX_RECOGNITION_SEGMENTS=3
-FFMPEG_PATH=C:\Tools\ffmpeg\bin\ffmpeg.exe
-```
+## 📚 More
 
-When enabled, the app still runs AcoustID first. AudD is used only for low-confidence, incomplete, or no-match audio identification unless you opt into medium-confidence verification. The app does not upload the full MP3 by default; it extracts short temporary clips around the middle portions of the song and deletes them after recognition.
-
-Use the GUI's `Test Recognition Setup` button to confirm the runtime provider actually loaded the token, can execute ffmpeg, can extract a temporary clip, and can make a real AudD authentication request. The button never displays the token.
-
-You can also set values in the current PowerShell session:
-
-```powershell
-$env:ACOUSTID_API_KEY="your-acoustid-api-key"
-$env:MUSIC_METADATA_CLEANER_USER_AGENT="MusicMetadataCleaner/0.1 (you@example.com)"
-```
-
-The app creates local preferences at:
-
-```text
-config/preferences.json
-```
-
-YouTube is optional. The app uses the official YouTube Data API v3 only as a secondary search and verification source. It does not scrape YouTube, download videos, download subtitles, or recover an original source URL from third-party MP3 downloads.
-
-Quota-aware defaults:
-
-```text
-MUSIC_METADATA_CLEANER_ALWAYS_USE_YOUTUBE_VERIFICATION=false
-MUSIC_METADATA_CLEANER_YOUTUBE_SEARCH_BELOW_CONFIDENCE=90
-```
-
-With the default setting, high-confidence AcoustID/MusicBrainz matches skip YouTube. Medium, low, and no-match cases can use YouTube as supporting evidence when `YOUTUBE_API_KEY` is configured.
-
-## Run From Source
-
-From the project folder:
-
-```powershell
-cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
-$env:PYTHONPATH="$PWD\src"
-python -m music_metadata_cleaner
-```
-
-If you are using the local `music-cleaner` conda environment directly:
-
-```powershell
-cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
-$env:PYTHONPATH="$PWD\src"
-& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m music_metadata_cleaner
-```
-
-For setup details, conda troubleshooting, API keys, `fpcalc`, `ffmpeg`, and first-use workflow, see the [User Guide](docs/USER_GUIDE.md).
-
-## Tests
-
-Recommended on this machine:
-
-```powershell
-$env:PYTHONPATH="$PWD\src"
-& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m pytest
-```
-
-If your correct environment is already active:
-
-```powershell
-python -m pytest
-```
-
-GUI smoke tests are opt-in:
-
-```powershell
-$env:RUN_QT_GUI_TESTS="1"
-python -m pytest tests/test_gui_smoke.py
-```
-
-## Packaging
-
-```powershell
-python -m PyInstaller packaging\MusicMetadataCleaner.spec --noconfirm
-```
-
-See [docs/BUILD.md](docs/BUILD.md) for release notes and checklist.
-
-## Documentation
-
-- [Requirements](docs/REQUIREMENTS.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Roadmap](docs/ROADMAP.md)
-- [MusicBrainz Release Selection](docs/MUSICBRAINZ_RELEASE_SELECTION.md)
-- [User Guide](docs/USER_GUIDE.md)
-- [Build Instructions](docs/BUILD.md)
-
-## Manual Regression Reports
-
-Do not commit sample MP3 files. To compare your 15 local samples before and after fallback recognition, keep a private CSV with columns:
-
-```text
-filename,before_high_confidence,after_confidence,after_correct,unresolved,acoustid_resolved,audd_fallback_resolved,youtube_verified
-```
-
-Then summarize it with:
-
-```powershell
-$env:PYTHONPATH="$PWD\src"
-& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -c "from music_metadata_cleaner.app.regression_report import summarize_regression_csv; print(summarize_regression_csv('reports/manual-regression.csv'))"
-```
+[User guide](docs/USER_GUIDE.md) · [Confidence & manual editing](docs/CONFIDENCE_AND_MANUAL_EDIT.md) · [Architecture](docs/ARCHITECTURE.md) · [Build & tests](docs/BUILD.md) · [All documentation](docs/README.md)
