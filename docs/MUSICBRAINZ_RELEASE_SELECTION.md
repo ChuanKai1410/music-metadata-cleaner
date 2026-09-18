@@ -1,8 +1,8 @@
-> Historical reference only. This provider is disconnected from the Phase 9 production application. See ARCHITECTURE.md for the active SearXNG pipeline.
+> Archived reference only. MusicBrainz is disconnected from the production application and has no active Settings control. The behavior below describes retained historical code/tests, not current user instructions or planned features. See [Architecture](ARCHITECTURE.md) and the [removal audit](PHASE9_REPORT.md) for the active SearXNG pipeline and retention reasons.
 
 # MusicBrainz Release Selection
 
-Given a confirmed MusicBrainz recording ID, Music Metadata Cleaner must enrich the local file with canonical metadata without blindly selecting the first release returned by MusicBrainz.
+The historical implementation used a confirmed MusicBrainz recording ID to enrich the local file with canonical metadata without blindly selecting the first release returned by MusicBrainz.
 
 ## Request Strategy
 
@@ -46,12 +46,14 @@ MusicBrainz may return multiple releases for a recording, including compilations
 
 The selection strategy favors the release with the clearest evidence that it is official, dated, and actually contains the confirmed recording as a track.
 
-## Future Improvements
+## Archived proposals (not the current roadmap)
 
-Future phases can add user preferences for:
+The old design considered user preferences for:
 
 - Preferred country.
 - Preferred release type.
 - Earliest release versus album release.
 - Excluding compilations.
 - Manual release override.
+
+These proposals are inactive. Current search proposes Artist + Title and preserves existing supported album/release tags; it does not query MusicBrainz releases.

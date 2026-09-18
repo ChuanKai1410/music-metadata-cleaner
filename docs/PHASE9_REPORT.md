@@ -1,5 +1,7 @@
 # Phase 9 implementation report
 
+> Refactor record with current follow-up links. The original refactor test count below is a historical snapshot. For current controls, use the [user guide](USER_GUIDE.md); subsequent manual editing and QSS styling are documented in [confidence/manual editing](CONFIDENCE_AND_MANUAL_EDIT.md) and the [UI polish report](UI_POLISH_REPORT.md). The latest recorded full suite passed 203 tests, including 15 GUI tests.
+
 ## 1–4. Interrupted work audit and repairs
 
 The repository started this replacement task with seven modified tracked files and three untracked Python files, all attributable to the interrupted refactor. No staged changes were present. The baseline commit was `67f9b40`. No reset, broad restore, or history deletion was used.
@@ -66,7 +68,7 @@ Windows was exercised here. Linux path/config rules are covered by tests; native
 
 ## 19. Automated and visual validation
 
-The complete suite passed with GUI enabled: **185 passed**. All external search and lyrics responses were mocked; no API quota or live SearXNG server was required.
+At completion of the original refactor, the complete suite passed with GUI enabled: **185 passed**. All external search and lyrics responses were mocked; no API quota or live SearXNG server was required.
 
 The system Anaconda interpreter hit an existing Qt DLL loader failure. The bundled Python 3.12 runtime successfully loaded the same PySide6 installation and ran all tests, including seven offscreen GUI tests. Main-window and Settings screenshots were rendered and inspected with an explicitly loaded font for the offscreen renderer.
 
@@ -74,8 +76,12 @@ Coverage includes real-world text cases, Unicode, downloader cleanup, parser ori
 
 ## 20. Manual benchmark and remaining limitations
 
-The user will provide the SearXNG URL, exact existing 15-file set and ground truth later. The real-MP3 benchmark has **not** been run or represented as completed.
+The user subsequently supplied the endpoint and exact 15-file set. The [17 September 2026 live benchmark](benchmarks/20260917-164448/REPORT.md) completed with 2 High, 0 Medium, and 13 Low results; all source-file hashes were unchanged. Independent ground-truth labels remain missing, so correctness is Unverified. This supersedes the original pending-benchmark note.
 
-A read-only benchmark runner and procedure are ready in SEARCH_BENCHMARK.md. It reports per-file evidence and correctness, leaving unknown truth Unverified. It never calls apply or rename.
+The read-only benchmark runner and repeat procedure are described in [SEARCH_BENCHMARK.md](SEARCH_BENCHMARK.md). It reports per-file evidence and correctness, leaving unknown truth Unverified. It never calls apply or rename.
 
 Rule-based parsing cannot understand arbitrary unstructured titles, translations, or missing textual identity. Ambiguous evidence requires user selection. Search quality depends on the configured SearXNG instance and enabled engines. A 403 may mean disabled JSON or server access restrictions. Search has a two-query limit; recall is intentionally secondary to avoiding invented identities.
+
+## Subsequent UI and manual-completion work
+
+The application now offers editable artist/title dropdowns, swapping, and manual plain lyrics through Save Preview; changed identities display Manual confirmed. Scan and Preview Changes are consolidated into Scan & Preview. Central QSS, calmer Current/Proposed details, shared evidence/history dialogs, and the 15-case GUI suite are described in [UI_POLISH_REPORT.md](UI_POLISH_REPORT.md). These changes did not retune the resolver, alter lyrics matching, or replace apply/backup/history/undo.

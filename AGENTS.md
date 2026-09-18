@@ -35,3 +35,11 @@ SearXNG payloads stay in the provider/cache boundary. Search URL is configurable
 Mock all search/LRCLIB requests. Use temporary files for write/rename/undo tests. Test Unicode, insufficient text, competing identities and versions, independent sources, endpoint-isolated caching and connection errors. GUI tests run offscreen when enabled.
 
 Historical recognition modules and their regression tests are retained but disconnected. Remove a historical module only after verifying no imports, runtime paths, tests or migrations require it. See docs/PHASE9_REPORT.md. Do not resume old recognition architecture.
+
+## UI and documentation
+
+- Use `ui/theme.py` and `ui/styles/app.qss` for shared styling; keep presentation colors out of backend code.
+- The single batch-search entry is **Scan & Preview**. Preserve distinct manual search, candidate selection, manual editing, apply, history, and undo paths. Inspect actual handlers before removing any apparent duplicate.
+- Manual identity/lyrics edits stage a preview only. Changed identities display **Manual confirmed**; lyrics never affect identity confidence.
+- Keep README concise and point detailed instructions to `docs/USER_GUIDE.md`. `docs/README.md` indexes current and historical documentation.
+- Update user-facing labels and figures after UI changes. Preserve dated benchmark measurements; label historical provider documents clearly. Do not claim 99% accuracy or infer it from passing tests.

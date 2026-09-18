@@ -1,68 +1,75 @@
-# Music Metadata Cleaner
+# 🎵 Music Metadata Cleaner
 
-A local-first PySide6 desktop application for reviewing and cleaning MP3 metadata.
+Clean MP3 artist/title tags and filenames with a local desktop app. Review every proposal before changing your files.
 
-MP3 → filename / existing ID3 → SearXNG → rule-based resolver → Artist + Title → LRCLIB plainLyrics → preview → confirmed ID3 update + rename.
+![Music Metadata Cleaner — track list and selected-track preview](docs/images/main-window.png)
+*Current dark-theme UI with demonstration data. “Manual confirmed” means the identity was entered by a user.*
 
-The application does **not analyze audio content**. It has no active audio recognition, paid search API, LLM, or dedicated YouTube API integration. It uses search-result titles, domains, and supporting text. It does not scrape target music or lyric websites.
+## ✨ What it does
 
-If the filename and ID3 contain insufficient information (for example `track001.mp3` or `流行歌曲推荐TikTok.mp3`), the result is **Insufficient Information**. Enter known details in **Search keywords** and use **Search**. No identity is invented.
+- Finds **Artist + Title** using filenames, useful ID3 tags, and **SearXNG** search results.
+- Lets you inspect evidence, choose candidates, or edit artist/title using editable dropdowns.
+- Retrieves **plain lyrics** from LRCLIB, preserves existing lyrics by default, and accepts manual lyrics.
+- Updates ID3 and renames files to **`Artist - Title.mp3`**, with confirmation, backups, history, and undo.
 
-## Setup
+**Text search only:** the app cannot listen to songs. Unclear filenames need manual keywords or editing. Confidence is an evidence rating, not a guaranteed accuracy percentage.
 
-Install Python 3.10+ and dependencies:
+```mermaid
+flowchart LR
+    A[MP3 filename + ID3] --> B[SearXNG search]
+    B --> C[Artist + Title candidates]
+    C --> D[Review + optional plain lyrics]
+    D --> E[Confirm apply]
+    E --> F[Update tags + rename]
+    F --> G[History + Undo]
+```
 
-```shell
+## 🚀 Quick start
+
+Requires **Python 3.10+**, compatible Qt libraries, and a **JSON-enabled SearXNG instance**. From the project folder:
+
+```sh
 python -m pip install -r requirements.txt
 ```
 
-Configure your SearXNG instance in **Settings → Search → SearXNG URL**, or set `SEARXNG_URL`. There is no default server and no search API key. For example, a locally managed instance might use `http://localhost:8080`. Enable JSON in its `settings.yml`:
-
-```yaml
-search:
-  formats:
-    - html
-    - json
-```
-
-Use **Test Connection** to validate the endpoint. See the [official SearXNG API documentation](https://docs.searxng.org/dev/search_api.html). A 403 commonly means JSON is disabled or access is restricted by that server.
-
-Run on Windows:
+**Windows · PowerShell**
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
 python -m music_metadata_cleaner
 ```
 
-Run on Linux:
+**Linux**
 
 ```sh
 PYTHONPATH=src python -m music_metadata_cleaner
 ```
 
-## Use
+In **Settings → Search**, enter your SearXNG base URL, click **Test Connection**, then **Save**. No search API key is needed. Alternatively, set `SEARXNG_URL` in your environment or a `.env` file in the launch folder; it overrides the saved URL. See [setup and troubleshooting](docs/USER_GUIDE.md#connect-search).
 
-1. Add MP3 files or a folder. Scanning reads tags without modifying files.
-2. Scan & Preview searches at most two queries per track, stopping early on strong agreement.
-3. Inspect **View Search Evidence**. Confidence is **High**, **Medium**, or **Low**, not a probability.
-4. Use **Use Candidate** to confirm an ambiguous identity, or enter manual search keywords.
-5. Confirm **Apply Selected** or **Apply All High Confidence**. The target name is `{Artist} - {Title}.mp3`.
-6. Use **Undo Last Batch** to restore supported original tags and filenames, including successful files in a partial batch.
+## 🧭 Everyday workflow
 
-Existing lyrics are preserved by default. LRCLIB supplies plain lyrics only. Missing lyrics do not prevent metadata updates or renames. Mismatched lyrics are marked for review and never written. There is no LRC output.
+1. **Add Files** or **Add Folder**.
+2. Click **Scan & Preview**. This does not modify MP3s.
+3. Select a row to compare **Current / Proposed** and **View Search Evidence**.
+4. If needed, use **Search keywords → Search**, **Use Candidate**, or **Edit Artist / Title / Lyrics → Save Preview**.
+5. Click **Apply Selected**, or **Apply All High Confidence**, then confirm.
+6. Use **History** to inspect changes and **Undo Last Batch** to restore supported tags and filenames.
 
-History is written to SQLite before modifying files; backup defaults on. Existing filenames and backups are never silently overwritten. Files must be previewed again if their tags change. Rename uses exclusive target creation and requires filesystem hard-link support (NTFS/ext4 and typical local filesystems); unsupported filesystems fail safely.
+Missing lyrics do not block metadata cleanup. **Remove**, **Clear**, and **Remove Applied Rows** only remove list entries, not files. [Full user guide →](docs/USER_GUIDE.md)
 
-New installations use platform config directories (`LOCALAPPDATA` on Windows; `XDG_CONFIG_HOME` / `~/.config` on Linux) and platform log/cache directories. Existing working-directory preferences and history are adopted without deleting or moving data. Search cache entries share the history database but are independently clearable and expire after one day by default.
+## 🛠️ Tech stack
 
-## Development and validation
+| Part | Technology |
+| --- | --- |
+| Desktop UI | Python, PySide6 / Qt, centralized QSS |
+| Search & identity | SearXNG JSON, httpx, deterministic rules |
+| Tags & lyrics | Mutagen ID3, LRCLIB plain lyrics |
+| History & cache | SQLite, pathlib |
+| Tests & packaging | pytest, PyInstaller |
 
-```shell
-python -m pytest -q
-```
+MP3 audio stays local; search text goes to your configured SearXNG server, and lyrics lookups go to LRCLIB. No audio recognition, LLM resolution, paid search API, or synchronized-lyrics export is used.
 
-All automated network requests are mocked. Offscreen GUI tests are enabled with `RUN_QT_GUI_TESTS=1` and `QT_QPA_PLATFORM=offscreen`; see [build instructions](docs/BUILD.md). Historical backend regression tests remain isolated from production imports.
+## 📚 More
 
-See [architecture and confidence rules](docs/ARCHITECTURE.md), [manual benchmark procedure](docs/SEARCH_BENCHMARK.md), and [refactor audit](docs/PHASE9_REPORT.md).
-
-Manual editing is available through **Edit Artist / Title / Lyrics**, including editable filename-derived dropdowns, swapping fields, and user-entered plain lyrics. Save Preview never writes files. See [confidence and manual editing](docs/CONFIDENCE_AND_MANUAL_EDIT.md).
+[User guide](docs/USER_GUIDE.md) · [Confidence & manual editing](docs/CONFIDENCE_AND_MANUAL_EDIT.md) · [Architecture](docs/ARCHITECTURE.md) · [Build & tests](docs/BUILD.md) · [All documentation](docs/README.md)

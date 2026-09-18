@@ -1,5 +1,7 @@
 # Live 15-file benchmark — 17 September 2026
 
+> Historical baseline: measurements and artifacts below are preserved from this run. Subsequent UI/manual-edit work did not rerun or retune this benchmark. See the [current benchmark guide](../../SEARCH_BENCHMARK.md) for interpretation and repeat instructions, or the [user guide](../../USER_GUIDE.md) for current controls.
+
 ## Outcome
 
 - SearXNG JSON connection: PASS. The endpoint was loaded from the project .env; no API key was used.

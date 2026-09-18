@@ -1,5 +1,7 @@
 # UI action audit — before control removal
 
+> Preserved pre-change audit. The listed decisions have been implemented; old button names below are intentional historical evidence. See the [user guide](USER_GUIDE.md) for current controls and [UI polish report](UI_POLISH_REPORT.md) for results.
+
 Scope: UI only. Reviewed all three UI modules and their signal/slot connections.
 
 | Controls | Handler and actual behavior | Decision |

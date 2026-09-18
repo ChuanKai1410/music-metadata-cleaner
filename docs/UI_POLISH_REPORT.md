@@ -1,5 +1,9 @@
 # UI polish report
 
+[Documentation index](README.md) · [Current user guide](USER_GUIDE.md) · [Main-window figure](images/main-window.png)
+
+This is the completed UI-pass record. Its test counts and platform limits describe that validation run; later documentation updates do not imply a new live benchmark or packaged release.
+
 ## Scope
 
 Presentation and UI wiring only. SearXNG, deterministic resolution, LRCLIB, ID3, rename, backup, history storage, and undo implementations were not modified. No new dependencies or features. Original music files were not used for write tests.
@@ -39,7 +43,7 @@ Retained distinct actions:
 | View Search Evidence / Show Log | Inspect selected-track evidence / reveal operational messages |
 | History / Undo Last Batch | Inspect recorded operations / confirm restoration |
 | Settings / Test Connection / Clear search cache | Configure preferences / test endpoint / clear cached requests |
-| Save Preview / Save Settings | Save a local proposal / persist configuration |
+| Save Preview / Save (Settings) | Save a local proposal / persist configuration |
 
 No meaningful settings were combined or removed. No destructive style was assigned to list-only removal actions.
 

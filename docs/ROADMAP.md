@@ -1,18 +1,29 @@
 # Roadmap
 
-## Phase 9 — implemented
+[Documentation index](README.md)
 
-SearXNG JSON search, deterministic text identity resolution, Unicode cleanup, independent-source scoring, candidate review, manual search, evidence diagnostics, LRCLIB plain lyrics, simplified Settings, and preserved apply/backup/history/undo.
+## Implemented
 
-## Validation pending user inputs
+- SearXNG JSON search with endpoint-specific expiring cache and connection diagnostics.
+- Deterministic Artist + Title candidates, Unicode cleanup, independent-domain scoring, version/conflict review, and inspectable evidence.
+- LRCLIB plain lyrics, preservation of existing lyrics, and nonfatal missing-lyrics behavior.
+- Manual keyword search, candidate confirmation, editable artist/title dropdowns, field swapping, and manual lyrics.
+- Confirmed ID3 updates/rename, backups, SQLite history, and Undo Last Batch.
+- Centralized dark QSS, a single Scan & Preview action, cleaner details/settings, and responsive table/detail layout.
 
-Run the existing 15-song benchmark against the user's SearXNG endpoint and manually verify Artist + Title. The user will supply the endpoint and sample manifest. Do not inflate scores to improve apparent recovery.
+## Validation completed
 
-## Follow-up candidates
+The [17 September 2026 live benchmark](benchmarks/20260917-164448/REPORT.md) processed all 15 user-selected files without changing their hashes. It produced 2 High, 0 Medium, and 13 Low results. No independent ground-truth manifest was supplied, so all correctness labels remain Unverified.
 
-- Tune parsing against verified benchmark failures without hidden identity guesses.
-- Improve transactional/crash recovery and full-frame history snapshots.
-- Support additional filesystem-safe rename mechanisms where hard links are unavailable.
-- Remove historical modules only when their tests/imports and compatibility needs have been retired deliberately.
+The subsequent UI pass recorded **203 passing tests**, including **15 GUI tests**, with GUI checks at 100%, 125%, and 150% scaling. This does not imply automatic recognition accuracy. UI work and documentation updates did not retune the resolver.
 
-No audio recognition, paid search backend, LLM resolver, synchronized lyrics or LRC feature is planned.
+## Remaining work, not implemented promises
+
+1. Obtain independently checked Artist + Title/version labels; measure precision and coverage on a broader held-out set before claiming 99%.
+2. Improve parsing of quoted lyric tails, site decoration, title-internal “by,” and noisy long queries while keeping genuine versions distinct.
+3. Validate native Linux GUI/packaging and freshly built desktop bundles on target systems.
+4. Extend crash recovery and full-frame/multiple-USLT restoration if required; current backups retain full file bytes.
+5. Consider safe alternatives for filesystems without hard-link support.
+6. Retire historical modules only after deliberately removing their remaining test/import/compatibility dependencies.
+
+Audio recognition, paid search APIs, LLM resolution, synchronized lyrics, and LRC export are outside the current product direction.
