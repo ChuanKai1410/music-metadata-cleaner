@@ -11,7 +11,7 @@ See README.md for setup. The workflow is text-only; it does not identify a song 
 7. Confirm Apply Selected or Apply All High Confidence. Album and other existing fields remain unchanged by the search-only proposal.
 8. Undo Last Batch restores supported original tags and names. Successful files from a partial batch can also be undone.
 
-Lyrics may be Existing, Found, Not Found, Disabled or Review. Existing lyrics are kept by default. Missing lyrics do not block metadata cleanup. Review means the lyrics identity could not be verified; those lyrics will not be written.
+Lyrics display Found or Not Found. Existing lyrics are kept by default. Missing or mismatched online lyrics do not affect identity confidence; mismatched lyrics are never written. Use Edit Artist / Title / Lyrics for editable dropdown suggestions, direct identity entry and manual plain lyrics. Confirm any replacement of existing lyrics, then Save Preview and Apply Selected.
 
 The filename convention and original-language preference are currently fixed: Artist - Title.mp3, with no translation. Settings expose these values for clarity.
 

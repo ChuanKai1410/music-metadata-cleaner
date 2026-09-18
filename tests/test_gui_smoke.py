@@ -197,3 +197,55 @@ def test_apply_and_undo_update_displayed_paths(app, tmp_path, monkeypatch):
     assert path.exists()
     assert window.tracks[0].path == path
     window.close()
+
+
+def test_manual_editor_dropdown_preview_and_validation(app):
+    from music_metadata_cleaner.ui.manual_edit_dialog import ManualEditDialog
+
+    track = WorkflowTrack(Path("Artist - Song (Live).mp3"), TrackMetadata())
+    dialog = ManualEditDialog(track)
+    assert "Artist" in [
+        dialog.artist_combo.itemText(i) for i in range(dialog.artist_combo.count())
+    ]
+    assert "Song (Live)" in [
+        dialog.title_combo.itemText(i) for i in range(dialog.title_combo.count())
+    ]
+    dialog._save()
+    assert dialog.result() != dialog.DialogCode.Accepted
+    dialog.artist_combo.setEditText("Artist")
+    dialog.title_combo.setEditText("Song (Live)")
+    assert dialog.filename_label.text() == "Artist - Song (Live).mp3"
+    dialog._swap()
+    assert dialog.artist_combo.currentText() == "Song (Live)"
+    dialog._swap()
+    dialog.edit_lyrics.setChecked(True)
+    dialog.lyrics_edit.setPlainText("user plain lyrics")
+    dialog._save()
+    assert dialog.result() == dialog.DialogCode.Accepted
+
+
+def test_manual_edit_button_handles_no_search_results(app, monkeypatch):
+    from music_metadata_cleaner.ui.manual_edit_dialog import ManualEditDialog
+
+    window = MainWindow(MusicCleanerWorkflowService())
+    window.tracks = [
+        WorkflowTrack(
+            Path("track001.mp3"),
+            TrackMetadata(),
+            processing_status="Insufficient Information",
+        )
+    ]
+    window._refresh_table()
+    window.table.selectRow(0)
+    assert window.edit_metadata_button.isEnabled()
+
+    def accept(dialog):
+        dialog.artist_combo.setEditText("Ado")
+        dialog.title_combo.setEditText("唱")
+        return dialog.DialogCode.Accepted
+
+    monkeypatch.setattr(ManualEditDialog, "exec", accept)
+    window.edit_metadata()
+    assert window.tracks[0].proposed.filename == "Ado - 唱.mp3"
+    assert window.table.item(0, 3).text() == "Manual confirmed"
+    window.close()

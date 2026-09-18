@@ -64,3 +64,5 @@ python -m pytest -q
 All automated network requests are mocked. Offscreen GUI tests are enabled with `RUN_QT_GUI_TESTS=1` and `QT_QPA_PLATFORM=offscreen`; see [build instructions](docs/BUILD.md). Historical backend regression tests remain isolated from production imports.
 
 See [architecture and confidence rules](docs/ARCHITECTURE.md), [manual benchmark procedure](docs/SEARCH_BENCHMARK.md), and [refactor audit](docs/PHASE9_REPORT.md).
+
+Manual editing is available through **Edit Artist / Title / Lyrics**, including editable filename-derived dropdowns, swapping fields, and user-entered plain lyrics. Save Preview never writes files. See [confidence and manual editing](docs/CONFIDENCE_AND_MANUAL_EDIT.md).

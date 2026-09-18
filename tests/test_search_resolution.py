@@ -386,7 +386,7 @@ def test_existing_lyrics_and_missing_plain_lyrics():
             Path("米津玄師 Lemon.mp3"), TrackMetadata(lyrics=Lyrics(text="keep"))
         )
     )
-    assert track.lyrics_status == "Existing"
+    assert track.lyrics_status == "Found"
     assert track.proposed.lyrics.plain_lyrics == "keep"
     service.lyrics_service = None
     missing = service.process_track(replace(track, current_metadata=TrackMetadata()))
@@ -595,7 +595,7 @@ def test_uncertain_lyrics_are_never_written(tmp_path):
         history_repository=HistoryRepository(conn),
     )
     track = service.process_track(service.discover([path])[0])
-    assert track.lyrics_status == "Review"
+    assert track.lyrics_status == "Not Found"
     assert service.apply_tracks([track], ApplySettings(rename_file=False))[0].success
     assert read_id3_metadata(path).lyrics is None
     conn.close()

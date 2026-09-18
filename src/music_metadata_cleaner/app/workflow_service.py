@@ -64,6 +64,8 @@ class WorkflowTrack:
     resolved_identity: ResolvedTrackIdentity | None = None
     manually_reviewed: bool = False
     manual_keywords: str | None = None
+    identity_manually_edited: bool = False
+    manual_lyrics_overwrite: bool = False
 
     @property
     def confidence(self) -> str:
@@ -129,6 +131,7 @@ class MusicCleanerWorkflowService:
         )
         self.default_apply_settings = default_apply_settings or ApplySettings()
         self.metadata_reader = metadata_reader
+        self._custom_metadata_writer = metadata_writer
         self.metadata_writer = metadata_writer or self._write_metadata
         self.metadata_restorer = metadata_restorer
         self.history_repository = history_repository
@@ -154,6 +157,8 @@ class MusicCleanerWorkflowService:
             confidence_score=0,
             requires_review=False,
             manually_reviewed=False,
+            identity_manually_edited=False,
+            manual_lyrics_overwrite=False,
             error_message=None,
             metadata_status="Not processed",
             lyrics_status="Not checked",
@@ -261,17 +266,9 @@ class MusicCleanerWorkflowService:
                 # Lyrics failures never discard the resolved identity.
                 lyrics = None
         lyrics_status = (
-            "Existing"
-            if lyrics and lyrics.source == "existing"
-            else (
-                "Review"
-                if lyrics and lyrics.requires_review
-                else (
-                    "Found"
-                    if lyrics and lyrics.has_plain_lyrics
-                    else "Not Found" if self.retrieve_lyrics else "Disabled"
-                )
-            )
+            "Found"
+            if lyrics and lyrics.has_plain_lyrics and not lyrics.requires_review
+            else "Not Found"
         )
         needs_review = not reviewed and identity.confidence != "High"
         proposed = ProposedTrackChanges(
@@ -290,14 +287,77 @@ class MusicCleanerWorkflowService:
             lyrics_status=lyrics_status,
             processing_status=(
                 "Review"
-                if needs_review or lyrics_status == "Review"
+                if needs_review
                 else "Lyrics Not Found" if lyrics_status == "Not Found" else "Ready"
             ),
             requires_review=needs_review,
             manually_reviewed=reviewed,
+            identity_manually_edited=False,
+            manual_lyrics_overwrite=False,
             diagnostic_status="; ".join(
                 identity.source_summaries + identity.evidence_breakdown
             ),
+        )
+
+    def manual_edit(
+        self,
+        track: WorkflowTrack,
+        *,
+        artist: str,
+        title: str,
+        plain_lyrics: str | None = None,
+        overwrite_existing_lyrics: bool = False,
+    ) -> WorkflowTrack:
+        """Stage explicitly user-confirmed values without searching or writing."""
+        artist, title = artist.strip(), title.strip()
+        if not artist or not title or any(c in artist + title for c in "\r\n\x00"):
+            raise ValueError("Artist and Title must contain nonempty single-line text.")
+        if track.processing_status == "Invalid MP3":
+            raise ValueError("Read valid MP3 metadata before editing.")
+        existing = track.current_metadata.lyrics
+        same_identity = bool(
+            track.proposed
+            and track.proposed.artist == artist
+            and track.proposed.title == title
+        )
+        lyrics = track.proposed.lyrics if same_identity else None
+        if existing and existing.has_text:
+            lyrics = LyricsResult(source="existing", plain_lyrics=existing.text)
+        if plain_lyrics is not None:
+            if not plain_lyrics.strip():
+                raise ValueError("Manual lyrics must not be empty.")
+            if existing and existing.has_text and not overwrite_existing_lyrics:
+                raise ValueError(
+                    "Confirm replacement of existing lyrics for this file."
+                )
+            lyrics = LyricsResult(source="manual", plain_lyrics=plain_lyrics.strip())
+        return replace(
+            track,
+            proposed=ProposedTrackChanges(
+                artist=artist,
+                title=title,
+                filename=generate_mp3_filename(artist, title),
+                lyrics=lyrics,
+            ),
+            resolved_identity=track.resolved_identity if same_identity else None,
+            confidence_score=track.confidence_score if same_identity else 0,
+            requires_review=False,
+            manually_reviewed=True,
+            identity_manually_edited=(
+                track.identity_manually_edited if same_identity else True
+            ),
+            manual_lyrics_overwrite=bool(
+                plain_lyrics is not None and overwrite_existing_lyrics
+            ),
+            metadata_status="Found",
+            processing_status="Ready (manual)",
+            error_message=None,
+            lyrics_status=(
+                "Found"
+                if lyrics and lyrics.has_plain_lyrics and not lyrics.requires_review
+                else "Not Found"
+            ),
+            diagnostic_status="Identity manually confirmed by the user; no automatic confidence assigned.",
         )
 
     def test_search(self) -> str:
@@ -556,7 +616,14 @@ class MusicCleanerWorkflowService:
 
             if settings.update_id3_metadata:
                 metadata_attempted = True
-                self.metadata_writer(track.path, self._metadata_update(track, settings))
+                update = self._metadata_update(track, settings)
+                if (
+                    track.manual_lyrics_overwrite
+                    and self._custom_metadata_writer is None
+                ):
+                    write_id3_metadata(track.path, update, overwrite_lyrics=True)
+                else:
+                    self.metadata_writer(track.path, update)
                 self.logger.info("Updated ID3 metadata for %s", track.path)
 
             if settings.rename_file and proposed.filename:
@@ -603,14 +670,15 @@ class MusicCleanerWorkflowService:
             track_number=proposed.track_number,
             lyrics=(
                 Lyrics(text=proposed.lyrics.plain_lyrics)
-                if settings.add_lyrics
-                and proposed.lyrics is not None
-                and proposed.lyrics.source == "online"
+                if proposed.lyrics is not None
+                and (settings.add_lyrics or proposed.lyrics.source == "manual")
+                and proposed.lyrics.source in {"online", "manual"}
                 and not proposed.lyrics.requires_review
                 and (
                     not track.current_metadata.lyrics
                     or not track.current_metadata.lyrics.has_text
                     or self.overwrite_existing_lyrics
+                    or track.manual_lyrics_overwrite
                 )
                 else None
             ),

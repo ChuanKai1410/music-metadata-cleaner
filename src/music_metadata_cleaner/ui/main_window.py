@@ -42,6 +42,7 @@ from music_metadata_cleaner.app.workflow_service import (
 )
 from music_metadata_cleaner.config import load_config
 from music_metadata_cleaner.ui.settings_dialog import SettingsDialog
+from music_metadata_cleaner.ui.manual_edit_dialog import ManualEditDialog
 
 
 COLUMNS = ["File", "Artist", "Title", "Confidence", "Lyrics", "Status"]
@@ -163,7 +164,9 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setVisible(False)
         self.table.setSortingEnabled(False)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
         splitter.addWidget(self.table)
 
         side_panel = QWidget()
@@ -227,6 +230,9 @@ class MainWindow(QMainWindow):
         detail_buttons.addWidget(self.diagnostics_button)
         detail_buttons.addWidget(self.use_candidate_button)
         detail_layout.addLayout(detail_buttons)
+        self.edit_metadata_button = QPushButton("Edit Artist / Title / Lyrics")
+        self.edit_metadata_button.clicked.connect(self.edit_metadata)
+        detail_layout.addWidget(self.edit_metadata_button)
         detail_layout.addWidget(QLabel("Search keywords:"))
         self.search_keywords = QLineEdit()
         self.search_keywords.setPlaceholderText(
@@ -454,6 +460,7 @@ class MainWindow(QMainWindow):
             self.undo_button,
             self.settings_button,
             self.manual_search_button,
+            self.edit_metadata_button,
             self.use_candidate_button,
             self.remove_high_confidence_button,
         ):
@@ -745,6 +752,9 @@ class MainWindow(QMainWindow):
             bool(track.candidates) and self.processing_thread is None
         )
         self.manual_search_button.setEnabled(self.processing_thread is None)
+        self.edit_metadata_button.setEnabled(
+            self.processing_thread is None and track.processing_status != "Invalid MP3"
+        )
         self.diagnostics_button.setEnabled(
             bool(track.search_queries or track.diagnostic_status)
         )
@@ -769,6 +779,7 @@ class MainWindow(QMainWindow):
             label.setText("-")
         self.use_candidate_button.setEnabled(False)
         self.manual_search_button.setEnabled(False)
+        self.edit_metadata_button.setEnabled(False)
         self.diagnostics_button.setEnabled(False)
 
     def _selected_rows(self) -> list[int]:
@@ -781,9 +792,45 @@ class MainWindow(QMainWindow):
         return self.tracks[rows[0]] if rows else None
 
     def _confidence_text(self, track: WorkflowTrack) -> str:
-        return track.confidence
+        return (
+            "Manual confirmed" if track.identity_manually_edited else track.confidence
+        )
+
+    @Slot()
+    def edit_metadata(self):
+        track = self._selected_track()
+        if track is None or self.processing_thread is not None:
+            return
+        dialog = ManualEditDialog(track, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            edited = self.workflow_service.manual_edit(
+                track,
+                artist=dialog.artist_combo.currentText(),
+                title=dialog.title_combo.currentText(),
+                plain_lyrics=(
+                    dialog.lyrics_edit.toPlainText()
+                    if dialog.edit_lyrics.isChecked()
+                    else None
+                ),
+                overwrite_existing_lyrics=dialog.overwrite_lyrics.isChecked(),
+            )
+        except ValueError as exc:
+            self._show_info(str(exc))
+            return
+        row = self._selected_rows()[0]
+        self.tracks[row] = edited
+        self._refresh_table()
+        self.table.selectRow(row)
+        self._refresh_detail_panel()
+        self._set_status(
+            "Manual preview saved. Apply Selected to confirm file changes."
+        )
 
     def _confidence_tooltip(self, track: WorkflowTrack) -> str:
+        if track.identity_manually_edited:
+            return "User-confirmed identity; not an automatic search confidence score."
         if track.confidence_score >= 80 and not track.requires_review:
             return "High confidence; eligible for confirmed batch apply."
         if track.confidence_score >= 60:
@@ -848,7 +895,12 @@ def _format_duration(seconds: int | None) -> str:
 
 
 def _lyrics_text(track: WorkflowTrack) -> str:
-    return track.lyrics_status
+    lyrics = track.proposed.lyrics if track.proposed else None
+    if lyrics and lyrics.has_plain_lyrics and not lyrics.requires_review:
+        return "Found"
+    if track.current_metadata.lyrics and track.current_metadata.lyrics.has_text:
+        return "Found"
+    return "Not Found"
 
 
 def _status_text(track: WorkflowTrack) -> str:
