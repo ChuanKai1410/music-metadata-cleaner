@@ -1,64 +1,49 @@
 # AGENTS.md
 
-## Project Intent
+## Product direction
 
-Music Metadata Cleaner is a local-first desktop application for safely cleaning MP3 metadata. It scans local files, identifies songs through metadata, filenames, and Chromaprint fingerprints, retrieves canonical metadata and lyrics from online providers, previews proposed changes, and only modifies files after explicit user confirmation.
+Phase 9: SearXNG + deterministic rule-based identity resolution + LRCLIB plain lyrics.
 
-Phase 1 is limited to architecture, requirements, roadmap, dependency list, and project skeleton. Do not implement the full application until Phase 2 is requested.
+MP3 → filename / existing useful ID3 → text cleanup → up to two SearXNG queries → rule-based Artist + Title candidates → preview → explicit confirmation → ID3 update + rename.
 
-## Safety Principles
+Do not implement audio recognition, paid search APIs, LLM resolution, synchronized lyrics, or LRC output. The application cannot listen to audio. Insufficient text must produce Insufficient Information and offer Manual Search.
 
-- Never modify MP3 files during scanning.
-- Always produce a preview or dry run before writing tags, lyrics, or filenames.
-- Never silently overwrite an existing file.
-- Store original metadata and filename in SQLite before any modification.
-- Support undo for the last applied batch.
-- Require manual review for low-confidence matches.
-- Never delete the original MP3.
-- Treat network failures as non-destructive; local files must remain unchanged.
-- Preserve existing lyrics by default.
-- Never overwrite lyrics without explicit user confirmation.
+## Safety
 
-## Architecture Boundaries
+- Scanning, search and preview must not modify MP3 files.
+- Require explicit user confirmation to apply; uncertain candidates require manual selection.
+- Persist original supported tags and filename in SQLite before modification.
+- Keep backup and undo functional. Never wipe user history or overwrite a filename silently.
+- Preserve existing lyrics by default. Overwriting requires explicitly configured permission.
+- Network and missing-lyrics failures are non-destructive.
+- Keep original-language Unicode. Never invent identity or hidden translation equivalence.
 
-Keep these layers separated:
+## Architecture
 
-- `ui`: PySide6 widgets, windows, dialogs, and view models only.
-- `app`: orchestration of scans, matching, previews, applying changes, and undo.
-- `domain`: plain data models, confidence scoring inputs, value objects, and rules.
-- `providers`: online metadata and lyrics integrations.
-- `fingerprinting`: Chromaprint/fpcalc execution and fingerprint result parsing.
-- `id3`: Mutagen-based metadata read/write logic.
-- `files`: local filesystem scanning, filename parsing, safe rename planning, and conflict handling.
-- `db`: SQLite persistence for cache, processing history, and undo.
+- ui: PySide6 widgets and workers; application services perform orchestration.
+- app: discovery, queries, preview, apply, undo, benchmark.
+- domain: normalized models and deterministic evidence rules.
+- providers: httpx adapters for SearXNG JSON and LRCLIB plain lyrics.
+- id3: Mutagen reading/writing/snapshot adapters only.
+- files: local scanning, safe filenames, non-overwriting renames and backups.
+- db: SQLite history and expiring request cache.
 
-Provider clients must not call PySide6 classes directly. UI code should depend on application services, not raw HTTP clients or Mutagen objects.
+SearXNG payloads stay in the provider/cache boundary. Search URL is configurable, with no key. No scrapers for result target sites. Provider code must not call PySide6.
 
-## Implementation Guidance
+## Tests and maintenance
 
-- Prefer small, testable services with dependency injection for HTTP, filesystem, and database access.
-- Keep domain rules deterministic and easy to unit test.
-- Use `httpx` for HTTP requests.
-- Use Mutagen only inside ID3/file metadata adapters.
-- Use subprocess execution for `fpcalc`; validate that it exists and report actionable setup errors.
-- Use SQLite migrations or a clearly versioned schema once persistence begins.
-- Keep API credentials and rate-limit configuration out of source control.
+Mock all search/LRCLIB requests. Use temporary files for write/rename/undo tests. Test Unicode, insufficient text, competing identities and versions, independent sources, endpoint-isolated caching and connection errors. GUI tests run offscreen when enabled.
 
-## Testing Expectations
+Historical recognition modules and their regression tests are retained but disconnected. Remove a historical module only after verifying no imports, runtime paths, tests or migrations require it. See docs/PHASE9_REPORT.md. Do not resume old recognition architecture.
 
-- Unit-test filename parsing, confidence scoring, safe rename planning, and ID3 mapping rules.
-- Mock external providers in tests.
-- Use temporary directories for filesystem tests.
-- Do not require live AcoustID, MusicBrainz, or LRCLIB network calls in default test runs.
+## UI and documentation
 
-## Current Phase
+- Use `ui/theme.py` and `ui/styles/app.qss` for shared styling; keep presentation colors out of backend code.
+- The single batch-search entry is **Scan & Preview**. Preserve distinct manual search, candidate selection, manual editing, apply, history, and undo paths. Inspect actual handlers before removing any apparent duplicate.
+- Manual identity/lyrics edits stage a preview only. Changed identities display **Manual confirmed**; lyrics never affect identity confidence.
+- Keep README concise and point detailed instructions to `docs/USER_GUIDE.md`. `docs/README.md` indexes current and historical documentation.
+- Update user-facing labels and figures after UI changes. Preserve dated benchmark measurements; label historical provider documents clearly. Do not claim 99% accuracy or infer it from passing tests.
 
-Phase 1 only:
+## Python project setup
 
-- Documentation
-- Requirements
-- Roadmap
-- Project skeleton
-- Dependency declaration
-- Ignore rules
-
+`pyproject.toml` configures setuptools package discovery under `src/`. Install `requirements.txt` and then `pip install -e .` with the intended interpreter; launch with `python -m music_metadata_cleaner`, without requiring `PYTHONPATH` or conda activation. The minimal project metadata does not declare dependencies or wheel resource inclusion; PyInstaller style assets are configured separately in its spec.

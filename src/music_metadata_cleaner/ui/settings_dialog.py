@@ -1,13 +1,13 @@
-"""Settings dialog for runtime configuration."""
+"""Preferences for text search, plain lyrics and local file safety."""
 
-from __future__ import annotations
+from music_metadata_cleaner.ui.theme import style_dialog, SPACE, MARGIN
 
 from dataclasses import replace
+import os
 from pathlib import Path
-
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -15,223 +15,230 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-
-from music_metadata_cleaner.audio_segments import check_ffmpeg_available
-from music_metadata_cleaner.app.workflow_service import MusicCleanerWorkflowService
 from music_metadata_cleaner.config import AppConfig, save_config
+from music_metadata_cleaner.app.search_service import test_search_connection
+
+
+class ConnectionTestWorker(QThread):
+    result = Signal(str)
+
+    def __init__(self, url, timeout, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.timeout = timeout
+
+    def run(self):
+        try:
+            status = test_search_connection(self.url, self.timeout)
+        except Exception:
+            status = "INVALID_RESPONSE"
+        self.result.emit(status)
 
 
 class SettingsDialog(QDialog):
-    """Edit persisted app settings without exposing saved secrets."""
-
     def __init__(
         self,
-        *,
         config: AppConfig,
         config_path: str | Path,
-        workflow_service: MusicCleanerWorkflowService,
+        workflow_service=None,
         parent=None,
-    ) -> None:
+    ):
         super().__init__(parent)
         self.config = config
         self.config_path = Path(config_path)
         self.workflow_service = workflow_service
+        self.test_worker = None
         self.setWindowTitle("Settings")
-        self.resize(720, 520)
-        self._build_ui()
-        self._load_values()
-
-    def _build_ui(self) -> None:
+        self.resize(680, 480)
         root = QVBoxLayout(self)
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._general_tab(), "General")
-        self.tabs.addTab(self._recognition_tab(), "Recognition")
-        self.tabs.addTab(self._online_services_tab(), "Online Services")
-        self.tabs.addTab(self._files_safety_tab(), "Files && Safety")
-        self.tabs.addTab(self._advanced_tab(), "Advanced")
-        root.addWidget(self.tabs, 1)
-
-        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        root.addWidget(self.tabs)
+        general = self._tab("General")
+        self.default_music_folder_edit = QLineEdit(config.default_music_folder)
+        folder = QWidget()
+        row = QHBoxLayout(folder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(SPACE)
+        row.addWidget(self.default_music_folder_edit)
+        browse = QPushButton("Browse")
+        browse.clicked.connect(self._browse_folder)
+        row.addWidget(browse)
+        general.addRow("Default music folder", folder)
+        self.filename_format_edit = QLineEdit("{artist} - {title}.mp3")
+        self.filename_format_edit.setReadOnly(True)
+        general.addRow("Filename format", self.filename_format_edit)
+        general.addRow(
+            "Language preference",
+            QLabel("Preserve original-language evidence (no translation)"),
+        )
+        search = self._tab("Search")
+        search.addRow("Provider", QLabel("SearXNG"))
+        self.searxng_url_edit = QLineEdit(config.searxng_url)
+        self.searxng_url_edit.setPlaceholderText("http://localhost:8080")
+        search.addRow("SearXNG URL", self.searxng_url_edit)
+        if os.environ.get("SEARXNG_URL", "").strip():
+            search.addRow(
+                QLabel("SEARXNG_URL environment variable overrides the saved URL.")
+            )
+        self.maximum_results_spin = QSpinBox()
+        self.maximum_results_spin.setRange(1, 20)
+        self.maximum_results_spin.setValue(config.maximum_search_results)
+        search.addRow("Maximum results", self.maximum_results_spin)
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(1, 60)
+        self.timeout_spin.setSuffix(" seconds")
+        self.timeout_spin.setValue(config.search_timeout_seconds)
+        search.addRow("Search timeout", self.timeout_spin)
+        self.automatic_search_checkbox = self._check(
+            search, "Automatic search", config.automatic_search
+        )
+        self.test_connection_button = QPushButton("Test Connection")
+        self.test_connection_button.clicked.connect(self._test_connection)
+        self.connection_status = QLabel("Not tested")
+        self.connection_status.setWordWrap(True)
+        search.addRow(self.test_connection_button, self.connection_status)
+        lyrics = self._tab("Lyrics")
+        self.retrieve_lyrics_checkbox = self._check(
+            lyrics, "Retrieve plain lyrics", config.default_add_lyrics
+        )
+        self.preserve_lyrics_checkbox = self._check(
+            lyrics, "Preserve existing lyrics", config.preserve_existing_lyrics
+        )
+        self.overwrite_lyrics_checkbox = self._check(
+            lyrics,
+            "Overwrite existing lyrics",
+            config.overwrite_existing_lyrics and not config.preserve_existing_lyrics,
+        )
+        self.preserve_lyrics_checkbox.toggled.connect(self._preserve_changed)
+        self._preserve_changed(self.preserve_lyrics_checkbox.isChecked())
+        safety = self._tab("Files && Safety")
+        self.rename_checkbox = self._check(
+            safety, "Rename files", config.default_rename_file
+        )
+        self.update_id3_checkbox = self._check(
+            safety, "Update ID3", config.default_update_id3_metadata
+        )
+        self.backup_checkbox = self._check(
+            safety,
+            "Backup before modification",
+            config.enable_backup_before_modification,
+        )
+        safety.addRow(
+            QLabel(
+                "Every apply requires confirmation. History is recorded before changes."
+            )
+        )
+        advanced = self._tab("Advanced")
+        self.cache_ttl_spin = QSpinBox()
+        self.cache_ttl_spin.setRange(0, 365 * 86400)
+        self.cache_ttl_spin.setSuffix(" seconds")
+        self.cache_ttl_spin.setValue(config.search_cache_ttl_seconds)
+        advanced.addRow("Search cache expiration", self.cache_ttl_spin)
+        self.clear_cache_button = QPushButton("Clear search cache")
+        self.clear_cache_button.clicked.connect(self._clear_cache)
+        advanced.addRow(self.clear_cache_button)
+        for name, value in (
+            ("History database", config.database_path),
+            ("Logs", config.log_path),
+        ):
+            label = QLabel(value)
+            label.setWordWrap(True)
+            advanced.addRow(name, label)
+        advanced.addRow(
+            QLabel("Diagnostics: select a track, then View Search Evidence.")
+        )
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
         root.addWidget(self.buttons)
+        style_dialog(self, root, self.buttons)
 
-    def _general_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QFormLayout(tab)
-        self.language_combo = QComboBox()
-        self.language_combo.addItems(["Original language", "English / Romanized if supported"])
-        self.filename_format_input = QLineEdit()
-        self.default_folder_input = QLineEdit()
-        browse = QPushButton("Browse")
-        browse.clicked.connect(self._browse_default_folder)
-        folder_row = QHBoxLayout()
-        folder_row.addWidget(self.default_folder_input, 1)
-        folder_row.addWidget(browse)
-        layout.addRow("Preferred metadata language", self.language_combo)
-        layout.addRow("Default naming format", self.filename_format_input)
-        layout.addRow("Default music folder", folder_row)
-        return tab
+    def _tab(self, title):
+        widget = QWidget()
+        form = QFormLayout(widget)
+        form.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        form.setSpacing(SPACE)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.tabs.addTab(widget, title)
+        return form
 
-    def _recognition_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QFormLayout(tab)
-        self.enable_audd_checkbox = QCheckBox("Enable AudD fallback")
-        self.multi_segment_checkbox = QCheckBox("Enable multi-segment recognition")
-        self.max_segments_spin = QSpinBox()
-        self.max_segments_spin.setRange(1, 5)
-        self.fallback_threshold_spin = QSpinBox()
-        self.fallback_threshold_spin.setRange(0, 100)
-        layout.addRow("", self.enable_audd_checkbox)
-        layout.addRow("", self.multi_segment_checkbox)
-        layout.addRow("Maximum recognition segments", self.max_segments_spin)
-        layout.addRow("Fallback confidence threshold", self.fallback_threshold_spin)
-        return tab
+    def _check(self, form, label, checked):
+        checkbox = QCheckBox(label)
+        checkbox.setChecked(checked)
+        form.addRow(checkbox)
+        return checkbox
 
-    def _online_services_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QFormLayout(tab)
-        self.audd_token_input = QLineEdit()
-        self.audd_token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.audd_status = QLabel("-")
-        self.audd_test_button = QPushButton("Test")
-        self.audd_test_button.clicked.connect(self._test_recognition_setup)
-        self.youtube_key_input = QLineEdit()
-        self.youtube_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.youtube_status = QLabel("-")
-        self.youtube_test_button = QPushButton("Test")
-        self.youtube_test_button.clicked.connect(self._test_youtube_config)
-        self.ffmpeg_input = QLineEdit()
-        ffmpeg_browse = QPushButton("Browse")
-        ffmpeg_browse.clicked.connect(self._browse_ffmpeg)
-        ffmpeg_test = QPushButton("Test")
-        ffmpeg_test.clicked.connect(self._test_ffmpeg)
-        self.ffmpeg_status = QLabel("-")
-        ffmpeg_row = QHBoxLayout()
-        ffmpeg_row.addWidget(self.ffmpeg_input, 1)
-        ffmpeg_row.addWidget(ffmpeg_browse)
-        ffmpeg_row.addWidget(ffmpeg_test)
-        audd_status_row = QHBoxLayout()
-        audd_status_row.addWidget(self.audd_status, 1)
-        audd_status_row.addWidget(self.audd_test_button)
-        youtube_status_row = QHBoxLayout()
-        youtube_status_row.addWidget(self.youtube_status, 1)
-        youtube_status_row.addWidget(self.youtube_test_button)
-        layout.addRow("AudD API token", self.audd_token_input)
-        layout.addRow("AudD status", audd_status_row)
-        layout.addRow("YouTube API key", self.youtube_key_input)
-        layout.addRow("YouTube status", youtube_status_row)
-        layout.addRow("FFmpeg executable", ffmpeg_row)
-        layout.addRow("FFmpeg status", self.ffmpeg_status)
-        return tab
+    def _preserve_changed(self, checked):
+        if checked:
+            self.overwrite_lyrics_checkbox.setChecked(False)
+        self.overwrite_lyrics_checkbox.setEnabled(not checked)
 
-    def _files_safety_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QFormLayout(tab)
-        self.update_metadata_checkbox = QCheckBox("Update ID3 metadata")
-        self.add_lyrics_checkbox = QCheckBox("Add lyrics when available")
-        self.export_lrc_checkbox = QCheckBox("Export synchronized .lrc")
-        self.rename_file_checkbox = QCheckBox("Rename files")
-        self.backup_checkbox = QCheckBox("Enable backup before modification")
-        self.backup_folder_input = QLineEdit()
-        layout.addRow("", self.update_metadata_checkbox)
-        layout.addRow("", self.add_lyrics_checkbox)
-        layout.addRow("", self.export_lrc_checkbox)
-        layout.addRow("", self.rename_file_checkbox)
-        layout.addRow("", self.backup_checkbox)
-        layout.addRow("Backup folder name", self.backup_folder_input)
-        return tab
-
-    def _advanced_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        self.diagnostics_text = QPlainTextEdit()
-        self.diagnostics_text.setReadOnly(True)
-        test_button = QPushButton("Test Recognition Setup")
-        test_button.clicked.connect(self._test_recognition_setup)
-        layout.addWidget(self.diagnostics_text, 1)
-        layout.addWidget(test_button)
-        return tab
-
-    def _load_values(self) -> None:
-        self.language_combo.setCurrentIndex(0 if self.config.artist_language == "Original" else 1)
-        self.filename_format_input.setText(self.config.filename_format or "{artist} - {title}.mp3")
-        self.default_folder_input.setText(self.config.default_music_folder)
-        self.enable_audd_checkbox.setChecked(self.config.fallback_recognition_enabled or bool(self.config.audd_api_token))
-        self.multi_segment_checkbox.setChecked(self.config.multi_segment_recognition_enabled)
-        self.max_segments_spin.setValue(self.config.max_recognition_segments)
-        self.fallback_threshold_spin.setValue(self.config.fallback_recognition_threshold)
-        self.audd_token_input.setPlaceholderText("Saved token configured" if self.config.audd_api_token else "")
-        self.audd_status.setText("Configured" if self.config.audd_api_token else "Not configured")
-        self.youtube_key_input.setPlaceholderText("Saved key configured" if self.config.youtube_api_key else "")
-        self.youtube_status.setText("Configured" if self.config.youtube_api_key else "Not configured")
-        self.ffmpeg_input.setText(self.config.ffmpeg_path)
-        self.update_metadata_checkbox.setChecked(self.config.default_update_id3_metadata)
-        self.add_lyrics_checkbox.setChecked(self.config.default_add_lyrics)
-        self.export_lrc_checkbox.setChecked(self.config.default_export_lrc)
-        self.rename_file_checkbox.setChecked(self.config.default_rename_file)
-        self.backup_checkbox.setChecked(self.config.enable_backup_before_modification)
-        self.backup_folder_input.setText(self.config.backup_folder_name)
-        self._refresh_diagnostics()
-        self._test_ffmpeg()
-
-    def save(self) -> None:
-        audd_token = self.audd_token_input.text().strip() or self.config.audd_api_token
-        youtube_key = self.youtube_key_input.text().strip() or self.config.youtube_api_key
-        updated = replace(
-            self.config,
-            artist_language="Original" if self.language_combo.currentIndex() == 0 else "English / Romanized",
-            filename_format=self.filename_format_input.text().strip() or "{artist} - {title}.mp3",
-            default_music_folder=self.default_folder_input.text().strip(),
-            audd_api_token=audd_token,
-            youtube_api_key=youtube_key,
-            ffmpeg_path=self.ffmpeg_input.text().strip() or "ffmpeg",
-            fallback_recognition_enabled=self.enable_audd_checkbox.isChecked(),
-            multi_segment_recognition_enabled=self.multi_segment_checkbox.isChecked(),
-            max_recognition_segments=self.max_segments_spin.value(),
-            fallback_recognition_threshold=self.fallback_threshold_spin.value(),
-            default_update_id3_metadata=self.update_metadata_checkbox.isChecked(),
-            default_add_lyrics=self.add_lyrics_checkbox.isChecked(),
-            default_export_lrc=self.export_lrc_checkbox.isChecked(),
-            default_rename_file=self.rename_file_checkbox.isChecked(),
-            enable_backup_before_modification=self.backup_checkbox.isChecked(),
-            backup_folder_name=self.backup_folder_input.text().strip() or "MusicCleaner_Backup",
+    def _browse_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Default music folder", self.default_music_folder_edit.text()
         )
-        save_config(self.config_path, updated)
-        self.config = updated
+        if folder:
+            self.default_music_folder_edit.setText(folder)
+
+    def _test_connection(self):
+        if self.test_worker is not None:
+            return
+        url = (
+            os.environ.get("SEARXNG_URL", "").strip()
+            or self.searxng_url_edit.text().strip()
+        )
+        self.test_worker = ConnectionTestWorker(url, self.timeout_spin.value(), self)
+        self.test_worker.result.connect(self.connection_status.setText)
+        self.test_worker.finished.connect(self._test_finished)
+        self.test_connection_button.setEnabled(False)
+        self.connection_status.setText("Testing...")
+        self.test_worker.start()
+
+    def _test_finished(self):
+        self.test_worker.deleteLater()
+        self.test_worker = None
+        self.test_connection_button.setEnabled(True)
+
+    def _clear_cache(self):
+        if self.workflow_service is not None:
+            self.workflow_service.clear_search_cache()
+            self.clear_cache_button.setText("Search cache cleared")
+
+    def save(self):
+        self.config = replace(
+            self.config,
+            searxng_url=self.searxng_url_edit.text().strip(),
+            maximum_search_results=self.maximum_results_spin.value(),
+            search_timeout_seconds=self.timeout_spin.value(),
+            automatic_search=self.automatic_search_checkbox.isChecked(),
+            search_cache_ttl_seconds=self.cache_ttl_spin.value(),
+            default_music_folder=self.default_music_folder_edit.text().strip(),
+            filename_format="{artist} - {title}.mp3",
+            artist_language="Original",
+            default_add_lyrics=self.retrieve_lyrics_checkbox.isChecked(),
+            preserve_existing_lyrics=self.preserve_lyrics_checkbox.isChecked(),
+            overwrite_existing_lyrics=self.overwrite_lyrics_checkbox.isChecked(),
+            default_rename_file=self.rename_checkbox.isChecked(),
+            default_update_id3_metadata=self.update_id3_checkbox.isChecked(),
+            enable_backup_before_modification=self.backup_checkbox.isChecked(),
+        )
+        save_config(self.config_path, self.config)
         self.accept()
 
-    def _browse_default_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Default Music Folder", self.default_folder_input.text())
-        if folder:
-            self.default_folder_input.setText(folder)
-
-    def _browse_ffmpeg(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select ffmpeg.exe", "", "Executable (*.exe);;All Files (*)")
-        if path:
-            self.ffmpeg_input.setText(path)
-            self._test_ffmpeg()
-
-    def _test_ffmpeg(self) -> None:
-        available, resolved, status = check_ffmpeg_available(self.ffmpeg_input.text().strip() or "ffmpeg")
-        self.ffmpeg_status.setText(f"Available - {resolved}" if available else status)
-
-    def _test_recognition_setup(self) -> None:
-        lines = ["Recognition setup test:"]
-        for check in self.workflow_service.test_recognition_setup():
-            detail = f" - {check.detail}" if check.detail else ""
-            lines.append(f"{check.name}: {check.status}{detail}")
-        self.diagnostics_text.setPlainText("\n".join(lines))
-
-    def _test_youtube_config(self) -> None:
-        self.youtube_status.setText("Configured" if (self.youtube_key_input.text().strip() or self.config.youtube_api_key) else "Not configured")
-
-    def _refresh_diagnostics(self) -> None:
-        self.diagnostics_text.setPlainText("\n".join(self.workflow_service.runtime_recognition_configuration()))
+    def done(self, result):
+        if self.test_worker is not None and self.test_worker.isRunning():
+            self.connection_status.setText(
+                "Wait for the connection test to finish before closing."
+            )
+            return
+        super().done(result)

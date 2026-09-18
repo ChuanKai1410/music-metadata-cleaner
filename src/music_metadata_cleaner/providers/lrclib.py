@@ -28,7 +28,7 @@ class RequestCacheProtocol(Protocol):
 
 
 class LRCLIBClient:
-    """Retrieve plain and synchronized lyrics from LRCLIB."""
+    """Retrieve plain lyrics; discard all other lyric formats."""
 
     def __init__(
         self,
@@ -120,7 +120,7 @@ class LRCLIBClient:
         if not isinstance(payload, dict):
             raise ProviderResponseError("LRCLIB returned an invalid lyrics payload.")
 
-        return payload
+        return {key: payload[key] for key in ("id", "artistName", "trackName", "name", "albumName", "duration", "instrumental", "plainLyrics") if key in payload}
 
     def _get(self, url: str, *, headers: dict[str, str], params: dict[str, object]) -> httpx.Response:
         if self.http_client is not None:
@@ -150,11 +150,12 @@ def normalize_lrclib_lyrics(payload: dict[str, object], lookup: LyricsLookup) ->
     review_reasons: list[str] = []
     confidence = 1.0
 
-    if returned_artist and _normalized(returned_artist) != _normalized(lookup.artist):
+    from music_metadata_cleaner.domain.search import artist_key
+    if not returned_artist or artist_key(returned_artist) != artist_key(lookup.artist):
         confidence -= 0.35
         review_reasons.append("LRCLIB artist differs from confirmed artist.")
 
-    if returned_title and _normalized(returned_title) != _normalized(lookup.title):
+    if not returned_title or _normalized(returned_title) != _normalized(lookup.title):
         confidence -= 0.35
         review_reasons.append("LRCLIB title differs from confirmed title.")
 
@@ -167,16 +168,12 @@ def normalize_lrclib_lyrics(payload: dict[str, object], lookup: LyricsLookup) ->
         if delta > 2:
             confidence -= 0.4
             review_reasons.append("LRCLIB duration differs by more than 2 seconds.")
-    elif lookup.duration is None or returned_duration is None:
-        confidence -= 0.15
-        review_reasons.append("Duration was unavailable for lyrics verification.")
 
     confidence = max(0.0, round(confidence, 2))
 
     return LyricsResult(
         source="online",
         plain_lyrics=_optional_str(payload.get("plainLyrics")),
-        synced_lyrics=_optional_str(payload.get("syncedLyrics")),
         lrclib_id=_int_or_none(payload.get("id")),
         artist=returned_artist,
         title=returned_title,
@@ -199,7 +196,8 @@ def _cache_key(lookup: LyricsLookup) -> tuple[str, str, str | None, int | None]:
 
 
 def _normalized(value: str) -> str:
-    return " ".join(value.casefold().split())
+    from music_metadata_cleaner.domain.search import normalized
+    return normalized(value)
 
 
 def _duration_seconds(value: object) -> int | None:

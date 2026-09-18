@@ -12,13 +12,13 @@ from music_metadata_cleaner.logging_config import configure_logging
 
 def test_config_round_trip(tmp_path):
     path = tmp_path / "config" / "preferences.json"
-    config = AppConfig(acoustid_api_key="secret", auto_apply_confidence_threshold=97)
+    config = AppConfig(searxng_url="https://search.example", maximum_search_results=8)
 
     save_config(path, config)
 
     loaded = load_config(path)
-    assert loaded.acoustid_api_key == "secret"
-    assert loaded.auto_apply_confidence_threshold == 97
+    assert loaded.searxng_url == "https://search.example"
+    assert loaded.maximum_search_results == 8
 
 
 def test_logging_creates_application_log(tmp_path):

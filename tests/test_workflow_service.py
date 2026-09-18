@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from mutagen.id3 import ID3, TIT2, TPE1
 
-from music_metadata_cleaner.app.workflow_service import ApplySettings, MusicCleanerWorkflowService, WorkflowTrack
+from music_metadata_cleaner.app.legacy_workflow_service import ApplySettings, MusicCleanerWorkflowService, WorkflowTrack
 from music_metadata_cleaner.db.connection import connect_database
 from music_metadata_cleaner.db.history import HistoryRepository
 from music_metadata_cleaner.db.schema import initialize_schema

@@ -128,8 +128,11 @@ class HistoryRepository:
         row = self.connection.execute(
             """
             SELECT batch_id FROM operation_batches
-            WHERE status = 'applied'
-            ORDER BY datetime(created_at) DESC, batch_id DESC
+            WHERE status IN ('applied', 'partial', 'undo_partial')
+              AND EXISTS (SELECT 1 FROM file_operations f
+                          WHERE f.batch_id = operation_batches.batch_id
+                          AND f.status IN ('applied', 'undo_failed'))
+            ORDER BY created_at DESC, rowid DESC
             LIMIT 1
             """
         ).fetchone()
@@ -160,4 +163,3 @@ class HistoryRepository:
             updated_at=row["updated_at"],
             error_message=row["error_message"],
         )
-

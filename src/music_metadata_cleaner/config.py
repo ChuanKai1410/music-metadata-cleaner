@@ -1,71 +1,94 @@
-"""User configuration for Music Metadata Cleaner."""
+"""Cross-platform preferences; obsolete recognition keys are ignored."""
 
-from __future__ import annotations
-
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
+import os
 from pathlib import Path
+import sys
+
+
+def app_directory(kind: str = "config") -> Path:
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    else:
+        fallback = Path.home() / (".config" if kind == "config" else ".cache")
+        base = Path(
+            os.environ.get(
+                "XDG_CONFIG_HOME" if kind == "config" else "XDG_CACHE_HOME", fallback
+            )
+        )
+    return base / "MusicMetadataCleaner"
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    acoustid_api_key: str = ""
-    audd_api_token: str = ""
-    youtube_api_key: str = ""
-    user_agent: str = "MusicMetadataCleaner/0.1 (local desktop app)"
+    searxng_url: str = ""
+    search_timeout_seconds: int = 10
+    search_provider: str = "SearXNG"
+    maximum_search_results: int = 8
+    automatic_search: bool = True
+    search_cache_ttl_seconds: int = 86400
+    user_agent: str = "MusicMetadataCleaner/0.9 (local desktop app)"
     default_music_folder: str = ""
     filename_format: str = "{artist} - {title}.mp3"
     artist_language: str = "Original"
-    auto_apply_confidence_threshold: int = 95
     enable_backup_before_modification: bool = True
     backup_folder_name: str = "MusicCleaner_Backup"
-    database_path: str = "music_metadata_cleaner.sqlite3"
-    log_path: str = "logs/application.log"
-    fpcalc_path: str = "fpcalc"
-    ffmpeg_path: str = "ffmpeg"
-    fallback_recognition_enabled: bool = False
-    fallback_recognition_threshold: int = 70
-    fallback_verify_medium_confidence: bool = False
-    multi_segment_recognition_enabled: bool = True
-    max_recognition_segments: int = 3
-    always_use_youtube_verification: bool = False
-    youtube_search_below_confidence: int = 90
+    database_path: str = field(
+        default_factory=lambda: str(app_directory() / "history.sqlite3")
+    )
+    log_path: str = field(
+        default_factory=lambda: str(app_directory("cache") / "application.log")
+    )
     default_update_id3_metadata: bool = True
     default_add_lyrics: bool = True
-    default_export_lrc: bool = False
+    preserve_existing_lyrics: bool = True
+    overwrite_existing_lyrics: bool = False
     default_rename_file: bool = True
 
 
 def load_config(path: str | Path) -> AppConfig:
-    config_path = Path(path)
-    if not config_path.exists():
+    path = Path(path)
+    if not path.exists():
         return AppConfig()
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    payload = _normalize_config_payload(payload)
-    allowed = {field.name for field in AppConfig.__dataclass_fields__.values()}
-    return AppConfig(**{key: value for key, value in payload.items() if key in allowed})
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return AppConfig()
+    return AppConfig(
+        **{
+            key: value
+            for key, value in payload.items()
+            if key in AppConfig.__dataclass_fields__
+        }
+    )
 
 
 def save_config(path: str | Path, config: AppConfig) -> None:
-    config_path = Path(path)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(asdict(config), indent=2, ensure_ascii=False), encoding="utf-8")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(asdict(config), indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
-def _normalize_config_payload(payload: object) -> dict[str, object]:
-    if not isinstance(payload, dict):
-        return {}
+def load_runtime_config(path: str | Path) -> AppConfig:
+    """Keep existing installations attached to their history without moving data."""
+    from dataclasses import replace
 
-    normalized = dict(payload)
-    aliases = {
-        "audd_api_key": "audd_api_token",
-        "audd_token": "audd_api_token",
-        "AUDD_API_KEY": "audd_api_token",
-        "AUDD_API_TOKEN": "audd_api_token",
-        "ffmpeg_executable": "ffmpeg_path",
-        "FFMPEG_PATH": "ffmpeg_path",
-    }
-    for old_key, canonical_key in aliases.items():
-        if canonical_key not in normalized and old_key in normalized:
-            normalized[canonical_key] = normalized[old_key]
-    return normalized
+    path = Path(path)
+    if path.exists():
+        return load_config(path)
+    legacy_path = Path.cwd() / "config" / "preferences.json"
+    config = load_config(legacy_path) if legacy_path.exists() else AppConfig()
+    legacy_db = Path.cwd() / "music_metadata_cleaner.sqlite3"
+    if legacy_path.exists():
+        raw = json.loads(legacy_path.read_text(encoding="utf-8"))
+        db = Path(raw.get("database_path", legacy_db))
+        config = replace(
+            config,
+            database_path=str(db.resolve()),
+            log_path=str(Path(config.log_path).resolve()),
+        )
+    elif legacy_db.exists():
+        config = replace(config, database_path=str(legacy_db.resolve()))
+    return config

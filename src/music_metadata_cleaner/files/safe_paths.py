@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 from pathlib import Path
 
 
@@ -52,3 +53,22 @@ def propose_mp3_path(current_path: Path, artist: str | None, title: str | None) 
 
     return current_path.with_name(generate_mp3_filename(artist, title))
 
+
+def rename_without_overwrite(source: Path, target: Path) -> None:
+    """Rename within one folder without POSIX rename's overwrite race.
+
+    Hard-link creation exclusively claims the target name. Removing the old name
+    then leaves the same file at the new name. Unsupported filesystems fail safely.
+    """
+    if source.parent.resolve() != target.parent.resolve():
+        raise ValueError("Rename must stay in the original folder.")
+    if source.resolve() == target.resolve():
+        return
+    if source.is_symlink():
+        raise ValueError("Symbolic links require manual file handling.")
+    os.link(source, target)
+    try:
+        source.unlink()
+    except Exception:
+        target.unlink()
+        raise

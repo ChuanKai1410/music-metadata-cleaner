@@ -1,214 +1,127 @@
-# User Guide
+# User guide
 
-## What Music Metadata Cleaner Does
+[Quick start](../README.md#-quick-start) · [Documentation index](README.md)
 
-Music Metadata Cleaner scans local MP3 files, identifies songs, retrieves canonical metadata and lyrics, previews proposed changes, and applies selected updates only after confirmation.
+## Start the application
 
-## Supported Formats
-
-Current write support is MP3 ID3 metadata. Other audio formats are ignored.
-
-## Configure APIs
-
-The easiest setup is to use the project `.env` file.
-
-From the project folder:
+Follow the README's one-time dependency and editable installation steps. After that, launch directly in PowerShell:
 
 ```powershell
-Copy-Item .env.example .env
-notepad .env
+& 'C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe' -m music_metadata_cleaner
 ```
 
-Fill in at least:
+No conda activation or `PYTHONPATH` setting is needed. The explicit interpreter path controls the environment, even if the prompt says `(base)`. Launch from the project folder when using its `.env`. Rebuild the Windows executable with `./build.ps1` after source changes; editable installation does not update an existing EXE.
 
-```text
-ACOUSTID_API_KEY=your-acoustid-api-key
-YOUTUBE_API_KEY=your-youtube-data-api-key
-MUSIC_METADATA_CLEANER_USER_AGENT=MusicMetadataCleaner/0.1 (your-email@example.com)
-FPCALC_PATH=C:\Tools\chromaprint\fpcalc.exe
+## Connect search
+
+1. Open **Settings → Search**.
+2. Enter the **base URL** of your SearXNG instance, such as `http://localhost:8080`. Do not append `/search`, a query, credentials, or a fragment.
+3. Click **Test Connection**. A working JSON endpoint returns **PASS**.
+4. Click **Save**.
+
+A browser search working does not guarantee JSON access. Your instance must allow JSON search responses. Its search configuration should include:
+
+```yaml
+search:
+  formats:
+    - html
+    - json
 ```
 
-`MUSIC_METADATA_CLEANER_USER_AGENT` should include a contact email because MusicBrainz asks applications to identify themselves. It can be your Gmail account or another email address you are comfortable using for technical contact.
+There is no built-in server or API key. `SEARXNG_URL` overrides the saved setting. The app also loads `.env` from the folder it is launched in, without overriding existing environment variables:
 
-You can also set environment variables manually before launching:
-
-```powershell
-$env:ACOUSTID_API_KEY="your-acoustid-api-key"
-$env:MUSIC_METADATA_CLEANER_USER_AGENT="MusicMetadataCleaner/0.1 (you@example.com)"
+```dotenv
+SEARXNG_URL=http://localhost:8080
 ```
 
-The app also creates:
+Restart after editing `.env`. To use the saved URL instead, remove the environment override. Do not publish your personal `.env`.
 
-```text
-config/preferences.json
-```
+## Scan, review, apply
 
-Supported preferences include API key, default music folder, filename format, artist language preference, auto-apply confidence threshold, backup setting, database path, and log path.
+1. **Add Files** selects MP3s; **Add Folder** discovers MP3s in a folder. Files are read, not changed.
+2. **Scan & Preview** searches the loaded list using up to two queries per track, stopping early for strong evidence. Cancel is available during processing.
+3. Select a row. The detail panel compares **Current** and **Proposed** values; changed proposals receive subtle emphasis. Drag the divider to adjust space or scroll long details.
+4. Use **View Search Evidence** to inspect the original/cleaned filename, queries, candidate scores, domains, titles, URLs, and snippets.
+5. Resolve uncertain tracks using the options below.
+6. **Apply Selected** applies selected rows with valid, reviewed proposals. **Apply All High Confidence** selects eligible High-confidence rows. Both require confirmation and follow the saved Files & Safety settings.
 
-YouTube settings are optional:
+The filename convention is `Artist - Title.mp3`, in the existing folder. Invalid filename characters are sanitized. The search workflow changes artist/title, not album/year enrichment; existing supported fields are preserved. The detail panel can show “-” for fields with no proposed replacement.
 
-```text
-MUSIC_METADATA_CLEANER_ALWAYS_USE_YOUTUBE_VERIFICATION=false
-MUSIC_METADATA_CLEANER_YOUTUBE_SEARCH_BELOW_CONFIDENCE=90
-```
+## When search needs help
 
-With defaults, high-confidence AcoustID/MusicBrainz matches do not spend YouTube quota. YouTube is used for medium-confidence verification and low/no-match fallback only when `YOUTUBE_API_KEY` is configured.
+| Action | Use it when |
+| --- | --- |
+| **Search keywords → Search** | You know useful text missing from the filename/tags. Search applies to the first selected row; Return also submits. |
+| **Use Candidate** | Search found plausible alternatives. Inspect evidence, choose the correct identity, and confirm the selection. |
+| **Edit Artist / Title / Lyrics** | You know the values yourself, even if search found nothing. No network request is required. |
 
-AudD fallback recognition is optional:
+`track001.mp3` or a generic recommendation name with no useful tags returns **Insufficient Information**. The app cannot identify audio content.
 
-```text
-AUDD_API_TOKEN=your-audd-token
-MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED=true
-MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_THRESHOLD=70
-MUSIC_METADATA_CLEANER_MULTI_SEGMENT_RECOGNITION_ENABLED=true
-MUSIC_METADATA_CLEANER_MAX_RECOGNITION_SEGMENTS=3
-FFMPEG_PATH=C:\Tools\ffmpeg\bin\ffmpeg.exe
-```
+In the manual editor, Artist and Title are editable dropdowns containing filename fragments, existing tags, and available candidates. Choose, type, or **Swap Artist / Title**. Suggestions are unverified text, not guaranteed identities.
 
-Install `ffmpeg.exe` and either put it on `PATH` or set `FFMPEG_PATH`. AudD fallback runs after weak, incomplete, or failed AcoustID recognition. It extracts short temporary clips from the MP3, sends those clips for recognition, and deletes them afterward. The original MP3 is not modified during recognition.
+![Manual editor with editable artist/title suggestions and optional lyrics](images/manual-edit.png)
+*Demonstration values in the actual Qt editor.*
 
-If `AUDD_API_TOKEN` is present, fallback recognition is enabled by default unless `MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED=false` is explicitly set in the environment.
+**Save Preview** stages changes only. A changed identity displays **Manual confirmed**, not an invented High score. Use **Apply Selected** to write it. Rescanning creates a fresh search preview and can replace an unsaved manual proposal.
 
-## Start The Application
+## Understand the table
 
-Recommended command on this machine:
+Columns: **File | Artist | Title | Confidence | Lyrics | Status**. Hover over truncated text to read the full value.
 
-```powershell
-cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
-$env:PYTHONPATH="$PWD\src"
-& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m music_metadata_cleaner
-```
+| Indicator | Meaning / next step |
+| --- | --- |
+| High / Medium / Low | Strength of textual evidence, not a probability. Medium/Low need explicit review. |
+| Manual confirmed | Artist/title was explicitly entered or changed by the user. |
+| Found / Not Found | Usable existing/proposed plain lyrics are present / absent. This does not affect identity confidence. |
+| Ready / Ready (manual) | A proposal is available for confirmed application. |
+| Review | Evidence is missing, ambiguous, or awaiting confirmation. Inspect sources, search, or edit. |
+| Insufficient Information | No useful automatic search text. Provide keywords or edit values. |
+| Lyrics Not Found | Identity can still be applied; lyrics are unavailable. |
+| Search Failed | Check the endpoint, connection diagnostics, or retry later. |
+| Invalid MP3 / Cancelled / Applied | File could not be read / processing stopped / changes were applied. |
 
-This works even when PowerShell still shows `(base)` or `conda activate music-cleaner` is broken, because it directly uses the Python installed inside the `music-cleaner` environment.
+**Not Found** also covers lyrics not yet retrieved or unavailable because of a lookup failure. It is not proof that lyrics do not exist online. See [confidence rules](CONFIDENCE_AND_MANUAL_EDIT.md).
 
-If conda activation works, you can use:
+## Lyrics
 
-```powershell
-cd C:\Users\SCSM11\Documents\SelfProject\music-metadata-cleaner
-conda activate music-cleaner
-$env:PYTHONPATH="$PWD\src"
-python -m music_metadata_cleaner
-```
+LRCLIB supplies plain lyrics only after High-confidence resolution or explicit candidate selection. Existing lyrics are kept by default. Missing or mismatched online lyrics do not block artist/title cleanup; mismatched lyrics are not written.
 
-The correct module name is:
+To supply lyrics yourself, open the manual editor, enable **Use manually entered plain lyrics**, and paste/type text. If lyrics already exist, explicitly confirm replacement for that file. **Update ID3** must be enabled to write lyrics. Manually entered lyrics can be written even when online retrieval is disabled. No synchronized lyrics or `.lrc` export is available.
 
-```text
-music_metadata_cleaner
-```
+## Settings
 
-Do not type backslashes in the module name.
+| Tab | Controls and defaults |
+| --- | --- |
+| General | Default music folder; fixed `Artist - Title.mp3` format and original-language preservation |
+| Search | SearXNG URL; maximum results **8** (1–20); timeout **10 seconds** (1–60); automatic search on; Test Connection |
+| Lyrics | Retrieve plain lyrics on; preserve existing lyrics on; overwrite off |
+| Files & Safety | Rename, Update ID3, and backup all on |
+| Advanced | Search cache expiration **86400 seconds**; Clear search cache; history/log paths; diagnostics guidance |
 
-To repair conda activation in PowerShell:
+With automatic search disabled, use Manual Search. For automatic lyrics replacement, disable preservation and explicitly enable overwrite. These remain separate controls. **Save** persists settings; **Cancel** discards edits. Connection tests and cache clearing take effect immediately, even if you later cancel the dialog.
 
-```powershell
-& "C:\Users\SCSM11\anaconda3\Scripts\conda.exe" init powershell
-```
+## List cleanup, history, and safety
 
-After that, close all PowerShell windows and open a new one.
+- **Remove** removes selected rows; **Clear** empties the list. Neither deletes MP3s.
+- **Remove Applied Rows** removes only rows successfully applied through **Apply All High Confidence**. It does not remove every High row or every manually applied row.
+- **History** shows the most recent 25 operations. **Undo Last Batch** asks for confirmation, then restores supported original tags and names, including successful files in a partially applied batch.
+- SQLite history is recorded before modification. Backups are enabled by default and retain full original file bytes. Undo uses supported tag snapshots, not a complete arbitrary-frame restore.
+- Existing target names and backup files are never silently overwritten. A changed tag snapshot requires a fresh preview. Rename requires filesystem hard-link support and fails safely when unsupported.
+- **Show Log** reveals the normally hidden message panel. Advanced lists the persistent log and history locations.
 
-## Basic Workflow
-
-1. Add MP3 files or a music folder.
-2. Select Preview Changes.
-3. Review confidence, metadata status, lyrics status, and proposed filename.
-4. Adjust apply settings.
-5. Apply selected rows or all high-confidence rows.
-6. Use Undo Last Batch if you need to restore the previous metadata and filename.
-
-When YouTube evidence is available, the table shows statuses such as `Matched`, `Candidates rejected`, `No results`, `API error`, `Not configured`, or `Not checked`. Select a row to view the YouTube candidate, channel, duration, and evidence strength. `Open YouTube Result` opens the matched video in your browser. It does not download anything.
-
-The table also shows Recognition status, such as `AcoustID`, `AudD fallback (2/3)`, `AcoustID + AudD`, `No audio match`, or `AudD: not configured`. The detail panel shows diagnostics for AcoustID, AudD, and YouTube so failed files are easier to troubleshoot.
-
-Use `Test Recognition Setup` before evaluating accuracy. Expected healthy output:
-
-```text
-AudD Provider        PASS
-AudD Authentication  PASS
-FFmpeg path          PASS
-FFmpeg execution     PASS
-Audio Extraction     PASS
-```
-
-The test performs a real AudD provider request against a tiny temporary audio clip. It may return `NO_MATCH`; that still means authentication succeeded.
-
-## Safety Features
-
-- Scanning does not modify files.
-- Apply requires a SQLite history record first.
-- Optional backup creates `.mp3.backup` files in `MusicCleaner_Backup/`.
-- Existing lyrics are not overwritten automatically.
-- Existing filenames and metadata are stored before changes.
-- Rename conflicts and `.lrc` conflicts stop the operation.
-- Failed operations attempt automatic recovery.
-
-## Duplicate Detection
-
-The backend can compare file hash, audio fingerprint, duration, and metadata similarity to identify:
-
-- Exact duplicates.
-- Same song with different filenames.
-- Possible different quality or version.
-
-Full duplicate review UI is a future enhancement.
+New installations use `%LOCALAPPDATA%/MusicMetadataCleaner` on Windows. Linux uses `$XDG_CONFIG_HOME/MusicMetadataCleaner` (default `~/.config`) for preferences/history and `$XDG_CACHE_HOME/MusicMetadataCleaner` (default `~/.cache`) for logs. Search cache shares the history database and can be cleared independently. Existing project-local preferences/history are adopted without moving or deleting them.
 
 ## Troubleshooting
 
-### No songs are identified
+| Test/status | Check |
+| --- | --- |
+| INVALID_ENDPOINT | Use a valid HTTP(S) base URL; remove `/search`, query parameters, and embedded credentials. |
+| JSON_FORMAT_DISABLED | Enable JSON and check access restrictions. HTML responses and HTTP 403 produce this diagnostic. |
+| SERVER_UNREACHABLE / TIMEOUT | Check the server, network, and configured timeout. |
+| INVALID_RESPONSE | Confirm the endpoint returns the expected SearXNG JSON structure. |
+| Search works, identity stays Review | Search results do not establish one supported identity. Use Candidate or manual editing. |
+| Apply/undo conflict | Inspect the message/log and resolve filename or backup collisions yourself; never rely on silent overwrite. |
+| `No module named music_metadata_cleaner` | From the project root, use the same interpreter to run `-m pip install -e .`; install `requirements.txt` for missing dependencies. |
+| Qt DLL/import error | Use a clean virtual environment with compatible PySide6 libraries; see [build guide](BUILD.md). |
 
-Check that `ACOUSTID_API_KEY` is set and `fpcalc.exe` is installed.
-
-### YouTube is not checked
-
-Check that `YOUTUBE_API_KEY` is set in `.env`. High-confidence rows skip YouTube by default to save quota.
-
-### YouTube unavailable
-
-The API key may be invalid, quota may be exhausted, or the network request may have failed. The app continues using AcoustID and MusicBrainz when YouTube is unavailable.
-
-### AudD fallback is not used
-
-Check that `AUDD_API_TOKEN` is set, `MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED=true`, and `ffmpeg.exe` is available through `FFMPEG_PATH` or `PATH`.
-
-If the runtime panel says `AudD: disabled`, remove the explicit false value or set:
-
-```text
-MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED=true
-```
-
-If the runtime panel says `AudD: authentication failed`, the token was loaded by the app but AudD rejected it.
-
-### AudD returns no match
-
-The clip may not contain recognizable music, the token may be invalid, quota may be exhausted, or the track may not exist in AudD's recognition database. Existing AcoustID/MusicBrainz results are preserved when AudD fails.
-
-### Missing fingerprint tool
-
-Install Chromaprint and confirm `fpcalc.exe` is available on `PATH`.
-
-### MusicBrainz or LRCLIB errors
-
-Check internet connectivity and wait if rate-limited. Provider errors are logged to:
-
-```text
-logs/application.log
-```
-
-### PySide6 fails to launch
-
-Some Anaconda environments can have Qt DLL conflicts. Try a clean virtual environment with dependencies installed from `requirements.txt`.
-
-If the base Anaconda Python shows a Qt DLL error, run the app with the direct environment Python instead:
-
-```powershell
-$env:PYTHONPATH="$PWD\src"
-& "C:\Users\SCSM11\anaconda3\envs\music-cleaner\python.exe" -m music_metadata_cleaner
-```
-
-If the command exits but no window appears, check that Qt is not running in offscreen mode:
-
-```powershell
-echo $env:QT_QPA_PLATFORM
-Remove-Item Env:QT_QPA_PLATFORM
-```
-
-Then start the app again.
+A High label is not a correctness guarantee. The recorded 15-song baseline and remaining parser limitations are documented in [Search benchmark](SEARCH_BENCHMARK.md).

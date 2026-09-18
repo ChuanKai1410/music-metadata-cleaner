@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-project_root = Path.cwd()
+project_root = Path(SPECPATH).resolve().parent
 src_root = project_root / "src"
 icon_path = project_root / "assets" / "icons" / "app.ico"
 
@@ -11,12 +11,22 @@ a = Analysis(
     [str(src_root / "music_metadata_cleaner" / "__main__.py")],
     pathex=[str(src_root)],
     binaries=[],
-    datas=[],
+    datas=[(str(src_root / "music_metadata_cleaner" / "ui" / "styles"), "music_metadata_cleaner/ui/styles")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        "music_metadata_cleaner.app.legacy_workflow_service",
+        "music_metadata_cleaner.app.audio_identification_service",
+        "music_metadata_cleaner.app.fallback_recognition_service",
+        "music_metadata_cleaner.app.metadata_enrichment_service",
+        "music_metadata_cleaner.audio_segments",
+        "music_metadata_cleaner.fingerprinting",
+        "music_metadata_cleaner.providers.acoustid",
+        "music_metadata_cleaner.providers.audd",
+        "music_metadata_cleaner.providers.musicbrainz",
+        "music_metadata_cleaner.providers.youtube",
         "IPython",
         "PIL",
         "dask",
@@ -39,14 +49,13 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="MusicMetadataCleaner",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -56,4 +65,14 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(icon_path) if icon_path.exists() else None,
+)
+
+# One-directory distribution (--onedir); console=False above is --windowed.
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="MusicMetadataCleaner",
 )

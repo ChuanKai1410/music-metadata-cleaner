@@ -1,130 +1,91 @@
-from __future__ import annotations
+"""Runtime settings and historical-data compatibility for the search-only app."""
 
+from dataclasses import asdict
+import json
 from pathlib import Path
-
+import sys
 from music_metadata_cleaner.app import service_factory
-from music_metadata_cleaner.app.workflow_service import MusicCleanerWorkflowService, RecognitionSetupCheck, WorkflowTrack
-from music_metadata_cleaner.config import AppConfig, load_config, save_config
-from music_metadata_cleaner.domain.models import AudioRecognitionResult, CandidateRecording, TrackMetadata
-from music_metadata_cleaner.providers.errors import ProviderResponseError
+from music_metadata_cleaner.config import (
+    AppConfig,
+    load_config,
+    save_config,
+    load_runtime_config,
+    app_directory,
+)
+from music_metadata_cleaner.providers.search import SearXNGProvider
 
 
-def test_legacy_audd_setting_names_load_into_canonical_token(tmp_path):
-    config_path = tmp_path / "preferences.json"
-    config_path.write_text('{"audd_api_key": "legacy-token"}', encoding="utf-8")
+def test_removed_settings_are_ignored(tmp_path):
+    path = tmp_path / "preferences.json"
+    path.write_text(
+        json.dumps(
+            {
+                "audd_api_key": "old",
+                "brave_api_key": "old",
+                "ffmpeg_path": "old",
+                "searxng_url": "http://search.example",
+            }
+        )
+    )
+    config = load_config(path)
+    assert config.searxng_url == "http://search.example"
+    assert not any(
+        "key" in key or "token" in key or "ffmpeg" in key for key in asdict(config)
+    )
 
-    config = load_config(config_path)
 
-    assert config.audd_api_token == "legacy-token"
-
-
-def test_persisted_audd_token_reaches_runtime_provider(tmp_path, monkeypatch):
-    config_path = tmp_path / "config" / "preferences.json"
-    save_config(config_path, AppConfig(audd_api_token="persisted-token", ffmpeg_path="ffmpeg"))
+def test_factory_uses_only_searxng_and_preserves_history(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(service_factory, "CONFIG_PATH", config_path)
-    monkeypatch.delenv("AUDD_API_TOKEN", raising=False)
-    monkeypatch.delenv("AUDD_API_KEY", raising=False)
-    monkeypatch.delenv("MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED", raising=False)
-
-    service = service_factory.create_default_workflow_service()
-
-    assert service.audd_token_present is True
-    assert service.audd_token_source == "Application settings"
-    assert service.fallback_recognition_enabled is True
-    assert service.fallback_recognition_service is not None
-    assert service.fallback_recognition_service.recognizer.api_token == "persisted-token"
-
-
-def test_runtime_rebuild_sees_changed_persisted_token(tmp_path, monkeypatch):
-    config_path = tmp_path / "config" / "preferences.json"
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(service_factory, "CONFIG_PATH", config_path)
-    monkeypatch.delenv("AUDD_API_TOKEN", raising=False)
-    monkeypatch.delenv("AUDD_API_KEY", raising=False)
-    monkeypatch.delenv("MUSIC_METADATA_CLEANER_FALLBACK_RECOGNITION_ENABLED", raising=False)
-
-    save_config(config_path, AppConfig(audd_api_token="first-token"))
+    path = tmp_path / "preferences.json"
+    db = tmp_path / "history.sqlite3"
+    save_config(
+        path,
+        AppConfig(
+            searxng_url="http://search.example",
+            database_path=str(db),
+            log_path=str(tmp_path / "app.log"),
+        ),
+    )
+    monkeypatch.setattr(service_factory, "CONFIG_PATH", path)
+    monkeypatch.delenv("SEARXNG_URL", raising=False)
     first = service_factory.create_default_workflow_service()
-    save_config(config_path, AppConfig(audd_api_token="second-token"))
+    assert isinstance(first.search_provider, SearXNGProvider)
+    assert first.search_provider.base_url == "http://search.example"
+    batch = first.history_repository.begin_batch()
+    first.close()
+    monkeypatch.setenv("SEARXNG_URL", "http://another.example:8888")
     second = service_factory.create_default_workflow_service()
-
-    assert first.fallback_recognition_service.recognizer.api_token == "first-token"
-    assert second.fallback_recognition_service.recognizer.api_token == "second-token"
-
-
-class AuthFailRecognizer:
-    def recognize_file(self, path, *, segment_index, start_seconds):
-        raise ProviderResponseError("AudD API token is invalid or not permitted.")
+    assert second.search_provider.base_url == "http://another.example:8888"
+    assert second.history_repository.list_batches()[0].batch_id == batch
+    second.close()
 
 
-class FakeFallbackService:
-    def __init__(self):
-        self.recognizer = AuthFailRecognizer()
-        self.max_segments = 3
+def test_legacy_database_path_reused_without_moving_data(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    old_db = tmp_path / "music_metadata_cleaner.sqlite3"
+    old_db.write_bytes(b"untouched")
+    config = load_runtime_config(tmp_path / "new" / "preferences.json")
+    assert Path(config.database_path) == old_db
+    assert old_db.read_bytes() == b"untouched"
+    assert not (tmp_path / "new").exists()
 
 
-def test_audd_auth_failure_is_not_reported_as_not_configured(tmp_path, monkeypatch):
-    clip = tmp_path / "clip.mp3"
-    clip.write_bytes(b"audio")
-    service = MusicCleanerWorkflowService(
-        fallback_recognition_service=FakeFallbackService(),
-        fallback_recognition_enabled=True,
-        audd_token_present=True,
-        audd_token_source="Application settings",
+def test_legacy_settings_relative_history_is_resolved(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/preferences.json").write_text(
+        '{"database_path":"data/history.sqlite3", "audd_api_token":"ignored"}'
     )
-    monkeypatch.setattr(
-        "music_metadata_cleaner.app.workflow_service.check_ffmpeg_available",
-        lambda ffmpeg_path: (True, str(clip), "READY"),
-    )
-    service._test_temporary_audio_extraction = lambda ffmpeg_path: (
-        RecognitionSetupCheck("Temporary audio extraction", "PASS", "mocked"),
-        clip,
-        None,
-    )
-
-    checks = service.test_recognition_setup()
-
-    auth = next(check for check in checks if check.name == "AudD authentication")
-    assert auth.status == "FAIL"
-    assert auth.detail == "AUTH_FAILED"
-    assert service._recognition_status(None, None) == "AudD: authentication failed"
+    config = load_runtime_config(tmp_path / "new/preferences.json")
+    assert config.database_path == str(tmp_path / "data/history.sqlite3")
 
 
-def test_incomplete_acoustid_triggers_audd_fallback(tmp_path):
-    class IncompleteIdentifier:
-        def identify(self, path):
-            return [CandidateRecording("acoustid-only", None, None, 255, 0.94, None)]
-
-    class Fallback:
-        def __init__(self):
-            self.calls = []
-
-        def recognize(self, path, *, duration_seconds=None):
-            self.calls.append((path, duration_seconds))
-            return AudioRecognitionResult(
-                artist="Ado",
-                title="唱",
-                provider="AudD",
-                matched_segments=2,
-                total_segments=3,
-                provider_confidence=0.92,
-            )
-
-    fallback = Fallback()
-    mp3_path = tmp_path / "unknown.mp3"
-    mp3_path.write_bytes(b"")
-    service = MusicCleanerWorkflowService(
-        identifier=IncompleteIdentifier(),
-        fallback_recognition_service=fallback,
-        fallback_recognition_enabled=True,
-        audd_token_present=True,
-        metadata_reader=lambda path: TrackMetadata(),
-    )
-
-    processed = service.process_track(WorkflowTrack(path=mp3_path, current_metadata=TrackMetadata()))
-
-    assert fallback.calls
-    assert processed.proposed.artist == "Ado"
-    assert processed.proposed.title == "唱"
-    assert processed.recognition_status == "AudD fallback (2/3)"
+def test_platform_directories(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    assert app_directory() == tmp_path / "config/MusicMetadataCleaner"
+    assert app_directory("cache") == tmp_path / "cache/MusicMetadataCleaner"
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    assert app_directory() == tmp_path / "local/MusicMetadataCleaner"

@@ -1,0 +1,14 @@
+[
+  {
+    "artist": "Kesha",
+    "title": "TiK ToK",
+    "error_type": "ProviderNetworkError",
+    "message": "LRCLIB network error: [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions"
+  },
+  {
+    "artist": "Neoni x burnboy",
+    "title": "Champion",
+    "error_type": "ProviderNetworkError",
+    "message": "LRCLIB network error: [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions"
+  }
+]

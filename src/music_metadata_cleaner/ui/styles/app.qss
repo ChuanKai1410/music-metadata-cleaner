@@ -1,0 +1,69 @@
+/* Base — colors are substituted from theme.PALETTE; keep the system font. */
+QWidget { color: @text@; }
+QMainWindow, QDialog { background: @background@; }
+QLabel { background: transparent; }
+QToolTip { background: @secondary@; color: @text@; border: 1px solid @border@; padding: 8px; }
+/* Typography */
+QLabel[role="title"] { font-size: 16pt; font-weight: 600; }
+QLabel[role="section"] { color: @secondaryText@; font-weight: 600; padding-top: 8px; padding-bottom: 4px; }
+QLabel[role="secondary"] { color: @secondaryText@; }
+QLabel[role="changed"] { color: @accent@; font-weight: 600; }
+QLabel[role="error"] { color: @danger@; }
+/* Buttons */
+QPushButton { background: @secondary@; border: 1px solid @border@; border-radius: 4px; padding: 6px 12px; min-height: 1.2em; }
+QPushButton:hover { background: @hover@; }
+QPushButton:pressed { background: @selection@; }
+QPushButton:focus { border-color: @accent@; }
+QPushButton:default { border-color: @accent@; }
+QPushButton[role="primary"] { background: @accentSurface@; border-color: @accentSurface@; }
+QPushButton[role="primary"]:hover { background: @selection@; border-color: @accent@; }
+QPushButton[role="primary"]:pressed { background: @secondary@; }
+QPushButton[role="primary"]:focus { border-color: @accent@; }
+QPushButton[role="danger"] { color: @danger@; }
+QPushButton:disabled { color: @muted@; background: @surface@; border-color: @secondary@; }
+/* Inputs */
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit { background: @surface@; border: 1px solid @border@; border-radius: 4px; padding: 6px 8px; selection-background-color: @selection@; }
+QLineEdit, QComboBox, QSpinBox { min-height: 1.2em; }
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus { border-color: @accent@; }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QPlainTextEdit:disabled { color: @muted@; background: @background@; }
+QLineEdit:read-only { color: @secondaryText@; }
+QComboBox QAbstractItemView { background: @surface@; selection-background-color: @selection@; border: 1px solid @border@; }
+QComboBox::drop-down { width: 24px; border: none; }
+QComboBox::down-arrow, QSpinBox::down-arrow { image: url("@styles@/down.svg"); width: 12px; height: 12px; }
+QSpinBox::up-arrow { image: url("@styles@/up.svg"); width: 12px; height: 12px; }
+QSpinBox::up-button, QSpinBox::down-button { width: 20px; }
+QCheckBox { spacing: 8px; padding: 4px 0; }
+QCheckBox:disabled { color: @muted@; }
+QCheckBox:focus { color: @accent@; }
+QCheckBox::indicator { width: 16px; height: 16px; }
+QCheckBox:hover { color: @accent@; }
+/* Tables */
+QTableWidget { background: @surface@; alternate-background-color: @surface@; border: 1px solid @border@; border-radius: 4px; selection-background-color: @selection@; selection-color: @text@; }
+QTableWidget::item { padding: 4px 8px; border: none; }
+QTableWidget::item:hover { background: @secondary@; }
+QTableWidget::item:selected { background: @selection@; color: @text@; }
+QTableWidget::item:focus { border: 1px solid @accent@; }
+QHeaderView::section { background: @secondary@; color: @secondaryText@; border: none; border-bottom: 1px solid @border@; padding: 8px; }
+/* Tabs */
+QTabWidget::pane { border: none; background: @surface@; }
+QTabBar::tab { background: @background@; color: @secondaryText@; padding: 8px 12px; border-bottom: 2px solid transparent; }
+QTabBar::tab:selected { color: @text@; border-bottom-color: @accent@; background: @surface@; }
+QTabBar::tab:hover { background: @secondary@; }
+QTabBar::tab:focus { color: @accent@; }
+/* Scrollbars */
+QScrollBar:vertical { background: @background@; width: 12px; margin: 0; }
+QScrollBar:horizontal { background: @background@; height: 12px; margin: 0; }
+QScrollBar::handle { background: @border@; border-radius: 4px; min-width: 24px; min-height: 24px; }
+QScrollBar::handle:hover { background: @muted@; }
+QScrollBar::handle:pressed { background: @secondaryText@; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+/* Progress and status */
+QProgressBar { border: none; background: @surface@; border-radius: 4px; max-height: 8px; }
+QProgressBar::chunk { background: @accentSurface@; border-radius: 4px; }
+QSplitter::handle { background: @background@; }
+QSplitter::handle:hover { background: @border@; }
+/* Dialogs and detail containers */
+QScrollArea { border: none; background: @background@; }
+QScrollArea > QWidget > QWidget { background: @background@; }
+QDialogButtonBox { background: transparent; }
